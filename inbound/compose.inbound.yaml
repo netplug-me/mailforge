@@ -1,0 +1,39 @@
+# Inbound mail via Cloudflare Email Routing -> Email Worker -> Tunnel -> inbound-bridge
+# -> docker-mailserver. Nothing here listens on the host, and no public IP or port 25
+# is needed. Use together with the scaffolded compose.yaml, from the project directory:
+#
+#   docker compose -f compose.yaml -f inbound/compose.inbound.yaml up -d
+#
+# Reads BRIDGE_SECRET and CF_TUNNEL_TOKEN from the project's .env.
+
+services:
+  mailserver:
+    environment:
+      # The bridge hands messages over from inside this compose network. Without this,
+      # SPF checks would evaluate the bridge's Docker IP and reject legitimate senders.
+      # Sender authentication (SPF/DKIM/DMARC) happens at Cloudflare Email Routing and
+      # the original DKIM signatures are preserved end to end.
+      - PERMIT_DOCKER=connected-networks
+
+  inbound-bridge:
+    image: node:22-alpine
+    command: ["node", "/app/server.mjs"]
+    volumes:
+      - ./inbound/bridge/server.mjs:/app/server.mjs:ro
+    environment:
+      - BRIDGE_SECRET=${BRIDGE_SECRET:?set BRIDGE_SECRET in .env}
+      - SMTP_HOST=mailserver
+      - SMTP_PORT=25
+      - HELO_NAME=inbound-bridge.internal
+    depends_on:
+      - mailserver
+    restart: unless-stopped
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    command: ["tunnel", "--no-autoupdate", "run"]
+    environment:
+      - TUNNEL_TOKEN=${CF_TUNNEL_TOKEN:?set CF_TUNNEL_TOKEN in .env}
+    depends_on:
+      - inbound-bridge
+    restart: unless-stopped

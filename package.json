@@ -1,0 +1,39 @@
+{
+  "name": "cf-mail-tui",
+  "version": "1.0.0",
+  "description": "Docker Mailserver Manager & Cloudflare DNS Sync with Interactive TUI",
+  "type": "module",
+  "bin": {
+    "cf-mail": "./dist/index.js",
+    "mailctl": "./dist/index.js"
+  },
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "docker-mailserver",
+    "cloudflare",
+    "dns",
+    "tui",
+    "email",
+    "postfix",
+    "opendkim"
+  ],
+  "author": "RCP Solutions",
+  "license": "MIT",
+  "dependencies": {
+    "@clack/prompts": "^0.9.1",
+    "chalk": "^5.4.1",
+    "cli-table3": "^0.6.5",
+    "commander": "^13.1.0",
+    "dotenv": "^16.4.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.9",
+    "tsx": "^4.19.3",
+    "typescript": "^5.7.3"
+  }
+}

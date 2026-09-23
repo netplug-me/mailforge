@@ -1,0 +1,32 @@
+services:
+  mailserver:
+    image: ghcr.io/docker-mailserver/docker-mailserver:latest
+    container_name: mailserver
+    hostname: mail.switchboard.llc
+    domainname: switchboard.llc
+    ports:
+      - "25:25"
+      - "465:465"
+      - "587:587"
+      - "993:993"
+      - "143:143"
+    volumes:
+      - ./docker-data/dms/mail-data/:/var/mail/
+      - ./docker-data/dms/mail-state/:/var/mail-state/
+      - ./docker-data/dms/mail-logs/:/var/log/mail/
+      - ./docker-data/dms/config/:/tmp/docker-mailserver/
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    env_file: ./docker-data/dms/config/mailserver.env
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=UTC
+      - ENABLE_CLAMAV=1
+      - ENABLE_FAIL2BAN=1
+      - ENABLE_SPAMASSASSIN=1
+      - ENABLE_RSPAMD=1
+      - SSL_TYPE=letsencrypt
+    cap_add:
+      - NET_ADMIN
+    restart: always
