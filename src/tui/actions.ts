@@ -1,121 +1,120 @@
-import * as p from '@clack/prompts';
-import chalk from 'chalk';
 import { getAppConfig } from '../config.js';
 import { DomainManager } from '../services/domain-manager.js';
 import { DmsService } from '../services/dms.js';
-import { DockerService } from '../services/docker.js';
+import { DockerService, ExecResult } from '../services/docker.js';
 import { DkimService } from '../services/dkim.js';
 import { DnsCheckerService } from '../services/dns.js';
 import { CloudflareService } from '../services/cloudflare.js';
-import { isValidDomain, isValidEmail, normalizeDomain } from '../utils/validator.js';
+import { DnsCheckItem } from '../types.js';
+import { isValidDomain, isValidEmail } from '../utils/validator.js';
+import { isCancel, ui } from './ui.js';
+
+const BACK = { value: 'back', label: '← Back' } as const;
+
+function reportExec(res: ExecResult, ok: string, fail: string) {
+  if (res.success) {
+    ui.success(ok);
+  } else {
+    ui.error(fail);
+    const detail = (res.stderr || res.stdout).trim();
+    if (detail) ui.line(detail);
+  }
+}
+
+function pickDomain(dm: DomainManager, message: string) {
+  return ui.select(
+    message,
+    dm.getAllDomains().map((d) => ({ value: d, label: d }))
+  );
+}
 
 export async function actionAddDomain(dm: DomainManager): Promise<void> {
   const config = getAppConfig();
   const cf = new CloudflareService();
 
-  const domain = await p.text({
-    message: 'Enter domain or sub-domain to add (e.g. shop.example.com):',
-    placeholder: 'sub.example.com',
+  const domainInput = await ui.text('Domain or sub-domain to add', {
+    placeholder: 'shop.example.com',
     validate: (val) => {
-      if (!val || !val.trim()) return 'Domain cannot be empty';
       const d = val.trim().toLowerCase();
+      if (!d) return 'Domain cannot be empty';
       if (!isValidDomain(d)) return 'Invalid domain format';
       if (d === config.primaryDomain) return 'Cannot add the primary domain';
       if (dm.getAllDomains().includes(d)) return 'Domain is already registered';
     },
   });
+  if (isCancel(domainInput)) return;
+  const domain = domainInput.trim().toLowerCase();
 
-  if (p.isCancel(domain)) return;
-
-  const usersInput = await p.text({
-    message: 'Initial email user(s) to create (comma separated, e.g. "sales, info") [optional]:',
+  const usersInput = await ui.text('Initial email user(s), comma separated (optional)', {
     placeholder: 'sales, support',
   });
-  if (p.isCancel(usersInput)) return;
+  if (isCancel(usersInput)) return;
 
   const users = usersInput
-    ? usersInput
-        .split(',')
-        .map((u) => u.trim())
-        .filter((u) => u.length > 0)
-    : [];
+    .split(',')
+    .map((u) => u.trim())
+    .filter((u) => u.length > 0);
 
   let password = '';
   let quota = '';
   let forward = '';
 
   if (users.length > 0) {
-    const isForward = await p.confirm({
-      message: 'Forward these users to an external email address (alias) instead of creating mailboxes?',
-      initialValue: false,
-    });
-    if (p.isCancel(isForward)) return;
+    const isForward = await ui.confirm('Forward these users to an external address instead of creating mailboxes?');
+    if (isCancel(isForward)) return;
 
     if (isForward) {
-      const fwd = await p.text({
-        message: 'Destination email address for forwarding:',
+      const fwd = await ui.text('Destination email address for forwarding', {
         placeholder: 'you@gmail.com',
-        validate: (val) => (!isValidEmail(val) ? 'Invalid email format' : undefined),
+        validate: (val) => (!isValidEmail(val.trim()) ? 'Invalid email format' : undefined),
       });
-      if (p.isCancel(fwd)) return;
-      forward = fwd;
+      if (isCancel(fwd)) return;
+      forward = fwd.trim();
     } else {
-      const pwd = await p.text({
-        message: 'Initial password for user accounts (leave empty for DMS auto-prompt):',
-        placeholder: 'SecretPassword123!',
-      });
-      if (p.isCancel(pwd)) return;
+      const pwd = await ui.text('Initial password for the new accounts (empty = DMS prompts)', { mask: true });
+      if (isCancel(pwd)) return;
       password = pwd;
 
-      const q = await p.text({
-        message: 'Mailbox quota (e.g. 500M, 2G, leave empty for default):',
-        placeholder: '1G',
-      });
-      if (p.isCancel(q)) return;
-      quota = q;
+      const q = await ui.text('Mailbox quota (e.g. 500M, 2G; empty = default)', { placeholder: '1G' });
+      if (isCancel(q)) return;
+      quota = q.trim();
     }
   }
 
   let syncDns = false;
   if (cf.isConfigured()) {
-    const sync = await p.confirm({
-      message: 'Automatically publish MX, SPF, DKIM, and DMARC records to Cloudflare?',
-      initialValue: true,
-    });
-    if (p.isCancel(sync)) return;
+    const sync = await ui.confirm('Publish MX, SPF, DKIM and DMARC records to Cloudflare?', { initial: true });
+    if (isCancel(sync)) return;
     syncDns = sync;
   }
 
-  const s = p.spinner();
-  s.start(`Adding domain ${domain}...`);
-
   try {
-    const res = await dm.addDomain({
-      domain,
-      users,
-      password: password || undefined,
-      quota: quota || undefined,
-      forward: forward || undefined,
-      syncDns,
-    });
+    const res = await ui.task(`Adding domain ${domain}…`, () =>
+      dm.addDomain({
+        domain,
+        users,
+        password: password || undefined,
+        quota: quota || undefined,
+        forward: forward || undefined,
+        syncDns,
+      })
+    );
 
-    s.stop(`Domain ${domain} successfully added!`);
-
-    let noteText = `Domain registered in POSTFIX_VIRTUAL_DOMAINS.\nDKIM key generated: ${res.dkimGenerated ? 'Yes' : 'No'}`;
-    if (res.dkimValue) {
-      noteText += `\nDKIM Record Value:\n${res.dkimValue}`;
-    }
-    if (res.accountsAdded.length > 0) {
-      noteText += `\nAccounts: ${res.accountsAdded.join(', ')}`;
-    }
+    ui.success(`Domain ${domain} added`);
+    ui.line('Registered in POSTFIX_VIRTUAL_DOMAINS');
+    ui.line(`DKIM key generated: ${res.dkimGenerated ? 'yes' : 'no'}`);
+    if (res.accountsAdded.length > 0) ui.line(`Accounts: ${res.accountsAdded.join(', ')}`);
     if (res.dnsSyncResult) {
-      noteText += `\nCloudflare Zone: ${res.dnsSyncResult.zone.name} (Synchronized ${res.dnsSyncResult.results.length} records)`;
+      ui.line(
+        `Cloudflare zone ${res.dnsSyncResult.zone.name}: ${res.dnsSyncResult.results.length} records synchronized`
+      );
     }
-
-    p.note(noteText, 'Domain Provisioned');
+    if (res.dkimValue) {
+      ui.heading('DKIM TXT value');
+      ui.raw(res.dkimValue);
+    }
   } catch (err: any) {
-    s.stop('Failed to add domain');
-    p.log.error(err.message);
+    ui.error(`Failed to add domain: ${err.message}`);
   }
 }
 
@@ -125,213 +124,154 @@ export async function actionRemoveDomain(dm: DomainManager): Promise<void> {
 
   const virtualDomains = dm.getAllDomains().filter((d) => d !== config.primaryDomain);
   if (virtualDomains.length === 0) {
-    p.log.warn('No virtual domains found to remove. (Primary domain cannot be removed)');
+    ui.warn('No virtual domains to remove (the primary domain cannot be removed).');
     return;
   }
 
-  const domain = await p.select({
-    message: 'Select domain to remove:',
-    options: virtualDomains.map((d) => ({ value: d, label: d })),
-  });
-  if (p.isCancel(domain)) return;
+  const domain = await ui.select(
+    'Domain to remove',
+    virtualDomains.map((d) => ({ value: d, label: d }))
+  );
+  if (isCancel(domain)) return;
 
-  const deleteData = await p.confirm({
-    message: `Permanently delete stored mail data for ${domain}?`,
-    initialValue: false,
-  });
-  if (p.isCancel(deleteData)) return;
+  const deleteData = await ui.confirm(`Permanently delete stored mail for ${domain}?`);
+  if (isCancel(deleteData)) return;
 
   let deleteDns = false;
   if (cf.isConfigured()) {
-    const dnsConfirm = await p.confirm({
-      message: `Delete email DNS records (MX, SPF, DKIM, DMARC) for ${domain} from Cloudflare?`,
-      initialValue: true,
+    const dnsConfirm = await ui.confirm(`Delete MX, SPF, DKIM and DMARC records for ${domain} from Cloudflare?`, {
+      initial: true,
     });
-    if (p.isCancel(dnsConfirm)) return;
+    if (isCancel(dnsConfirm)) return;
     deleteDns = dnsConfirm;
   }
 
-  const confirmed = await p.confirm({
-    message: chalk.red(`Are you sure you want to remove ${domain}? This will stop accepting email for this domain.`),
-    initialValue: false,
-  });
-  if (p.isCancel(confirmed) || !confirmed) return;
-
-  const s = p.spinner();
-  s.start(`Removing domain ${domain}...`);
+  const confirmed = await ui.confirm(`Remove ${domain}? It will stop accepting email.`, { danger: true });
+  if (isCancel(confirmed) || !confirmed) {
+    ui.info('Cancelled; nothing was changed.');
+    return;
+  }
 
   try {
-    const res = await dm.removeDomain({
-      domain,
-      deleteData,
-      deleteDns,
-    });
-
-    s.stop(`Domain ${domain} removed.`);
-    let summary = `Removed from configuration.\nAccounts purged: ${res.accountsDeleted.length}`;
-    if (res.dataDeleted) summary += '\nMail data: DELETED';
-    if (res.dnsDeletedResult) summary += `\nCloudflare records deleted: ${res.dnsDeletedResult.deletedCount}`;
-
-    p.note(summary, 'Domain Removal Complete');
+    const res = await ui.task(`Removing domain ${domain}…`, () => dm.removeDomain({ domain, deleteData, deleteDns }));
+    ui.success(`Domain ${domain} removed`);
+    ui.line(`Accounts purged: ${res.accountsDeleted.length}`);
+    if (res.dataDeleted) ui.line('Mail data: deleted');
+    if (res.dnsDeletedResult) ui.line(`Cloudflare records deleted: ${res.dnsDeletedResult.deletedCount}`);
   } catch (err: any) {
-    s.stop('Failed to remove domain');
-    p.log.error(err.message);
+    ui.error(`Failed to remove domain: ${err.message}`);
   }
 }
 
 export async function actionManageMailboxes(dm: DomainManager): Promise<void> {
   const dms = new DmsService();
-  const allDomains = dm.getAllDomains();
 
-  const domain = await p.select({
-    message: 'Select domain to manage mailboxes/aliases for:',
-    options: allDomains.map((d) => ({ value: d, label: d })),
-  });
-  if (p.isCancel(domain)) return;
+  const domain = await pickDomain(dm, 'Domain to manage mailboxes & aliases for');
+  if (isCancel(domain)) return;
+
+  // Outcome of the previous step, shown under the refreshed listing.
+  let result: (() => void) | undefined;
 
   while (true) {
     const accounts = dms.listAccounts().filter((a) => a.domain.toLowerCase() === domain.toLowerCase());
     const aliases = dms.listAliases().filter((a) => a.source.toLowerCase().endsWith(`@${domain.toLowerCase()}`));
 
-    console.log();
-    console.log(chalk.bold.cyan(`Mailboxes & Aliases for ${domain}:`));
+    ui.begin(`Mailboxes & aliases · ${domain}`);
     if (accounts.length === 0 && aliases.length === 0) {
-      console.log(chalk.dim('  (No mailboxes or aliases configured yet)'));
-    } else {
-      for (const a of accounts) {
-        console.log(`  👤 ${chalk.bold(a.email)}`);
-      }
-      for (const al of aliases) {
-        console.log(`  ↪ ${chalk.bold(al.source)} -> ${chalk.dim(al.destination)}`);
-      }
+      ui.line('(no mailboxes or aliases yet)');
     }
-    console.log();
+    for (const a of accounts) ui.line(`mailbox  ${a.email}`);
+    for (const al of aliases) ui.line(`alias    ${al.source} → ${al.destination}`);
+    result?.();
+    result = undefined;
 
-    const action = await p.select({
-      message: 'Choose an action:',
-      options: [
-        { value: 'add_account', label: '➕ Add Email Account' },
-        { value: 'del_account', label: '➖ Delete Email Account' },
-        { value: 'set_quota', label: '💾 Set Mailbox Quota' },
-        { value: 'add_alias', label: '↪ Add Forwarder / Alias' },
-        { value: 'del_alias', label: '❌ Delete Forwarder / Alias' },
-        { value: 'back', label: '← Back to Main Menu' },
-      ],
-    });
+    const action = await ui.select('Mailbox action', [
+      { value: 'add_account', label: 'Add email account' },
+      { value: 'del_account', label: 'Delete email account' },
+      { value: 'set_quota', label: 'Set mailbox quota' },
+      { value: 'add_alias', label: 'Add forwarder / alias' },
+      { value: 'del_alias', label: 'Delete forwarder / alias' },
+      BACK,
+    ]);
 
-    if (p.isCancel(action) || action === 'back') break;
+    if (isCancel(action) || action === 'back') break;
 
     if (action === 'add_account') {
-      const username = await p.text({
-        message: `Username for new account (@${domain}):`,
+      const username = await ui.text(`Username for the new account (@${domain})`, {
         placeholder: 'john',
+        validate: (v) => (!v.trim() ? 'Username cannot be empty' : undefined),
       });
-      if (p.isCancel(username)) continue;
+      if (isCancel(username)) continue;
 
-      const password = await p.text({
-        message: 'Password for new account:',
-        placeholder: 'SecretPassword123!',
-      });
-      if (p.isCancel(password)) continue;
+      const password = await ui.text('Password for the new account', { mask: true });
+      if (isCancel(password)) continue;
 
       const email = `${username.trim()}@${domain}`;
-      const s = p.spinner();
-      s.start(`Adding account ${email}...`);
-      const res = dms.addAccount(email, password.trim() || undefined);
-      if (res.success) {
-        s.stop(`Account ${email} created!`);
-      } else {
-        s.stop('Failed to create account');
-        p.log.error(res.stderr || res.stdout);
-      }
+      const res = await ui.task(`Adding account ${email}…`, () => dms.addAccount(email, password.trim() || undefined));
+      result = () => reportExec(res, `Account ${email} created`, 'Failed to create account');
     } else if (action === 'del_account') {
       if (accounts.length === 0) {
-        p.log.warn('No accounts exist to delete.');
-        continue;
-      }
-      const target = await p.select({
-        message: 'Select account to delete:',
-        options: accounts.map((a) => ({ value: a.email, label: a.email })),
-      });
-      if (p.isCancel(target)) continue;
-
-      const s = p.spinner();
-      s.start(`Deleting ${target}...`);
-      const res = dms.delAccount(target);
-      if (res.success) {
-        s.stop(`Account ${target} deleted.`);
+        result = () => ui.warn('No accounts to delete.');
       } else {
-        s.stop('Failed to delete account');
-        p.log.error(res.stderr || res.stdout);
+        const target = await ui.select(
+          'Account to delete',
+          accounts.map((a) => ({ value: a.email, label: a.email }))
+        );
+        if (isCancel(target)) continue;
+        const sure = await ui.confirm(`Delete ${target}?`, { danger: true });
+        if (isCancel(sure) || !sure) continue;
+
+        const res = await ui.task(`Deleting ${target}…`, () => dms.delAccount(target));
+        result = () => reportExec(res, `Account ${target} deleted`, 'Failed to delete account');
       }
     } else if (action === 'set_quota') {
       if (accounts.length === 0) {
-        p.log.warn('No accounts exist.');
-        continue;
-      }
-      const target = await p.select({
-        message: 'Select account:',
-        options: accounts.map((a) => ({ value: a.email, label: a.email })),
-      });
-      if (p.isCancel(target)) continue;
-
-      const quota = await p.text({
-        message: 'Enter quota size (e.g. 500M, 2G):',
-        placeholder: '1G',
-      });
-      if (p.isCancel(quota)) continue;
-
-      const s = p.spinner();
-      s.start(`Setting quota for ${target}...`);
-      const res = dms.setQuota(target, quota.trim());
-      if (res.success) {
-        s.stop(`Quota set to ${quota} for ${target}!`);
+        result = () => ui.warn('No accounts exist.');
       } else {
-        s.stop('Failed to set quota');
-        p.log.error(res.stderr || res.stdout);
+        const target = await ui.select(
+          'Account',
+          accounts.map((a) => ({ value: a.email, label: a.email }))
+        );
+        if (isCancel(target)) continue;
+
+        const quota = await ui.text('Quota size (e.g. 500M, 2G)', { placeholder: '1G' });
+        if (isCancel(quota)) continue;
+
+        const res = await ui.task(`Setting quota for ${target}…`, () => dms.setQuota(target, quota.trim()));
+        result = () => reportExec(res, `Quota for ${target} set to ${quota.trim()}`, 'Failed to set quota');
       }
     } else if (action === 'add_alias') {
-      const srcUser = await p.text({
-        message: `Alias name (@${domain}):`,
+      const srcUser = await ui.text(`Alias name (@${domain})`, {
         placeholder: 'support',
+        validate: (v) => (!v.trim() ? 'Alias name cannot be empty' : undefined),
       });
-      if (p.isCancel(srcUser)) continue;
+      if (isCancel(srcUser)) continue;
 
-      const dest = await p.text({
-        message: 'Destination address:',
+      const dest = await ui.text('Destination address', {
         placeholder: 'user@external.com',
+        validate: (v) => (!isValidEmail(v.trim()) ? 'Invalid email format' : undefined),
       });
-      if (p.isCancel(dest)) continue;
+      if (isCancel(dest)) continue;
 
       const srcEmail = `${srcUser.trim()}@${domain}`;
-      const s = p.spinner();
-      s.start(`Adding alias ${srcEmail} -> ${dest}...`);
-      const res = dms.addAlias(srcEmail, dest.trim());
-      if (res.success) {
-        s.stop(`Alias created!`);
-      } else {
-        s.stop('Failed to create alias');
-        p.log.error(res.stderr || res.stdout);
-      }
+      const res = await ui.task(`Adding alias ${srcEmail} → ${dest.trim()}…`, () =>
+        dms.addAlias(srcEmail, dest.trim())
+      );
+      result = () => reportExec(res, `Alias ${srcEmail} → ${dest.trim()} created`, 'Failed to create alias');
     } else if (action === 'del_alias') {
       if (aliases.length === 0) {
-        p.log.warn('No aliases exist.');
-        continue;
-      }
-      const target = await p.select({
-        message: 'Select alias to delete:',
-        options: aliases.map((al) => ({ value: al, label: `${al.source} -> ${al.destination}` })),
-      });
-      if (p.isCancel(target)) continue;
-
-      const s = p.spinner();
-      s.start(`Deleting alias ${target.source}...`);
-      const res = dms.delAlias(target.source, target.destination);
-      if (res.success) {
-        s.stop(`Alias deleted!`);
+        result = () => ui.warn('No aliases exist.');
       } else {
-        s.stop('Failed to delete alias');
-        p.log.error(res.stderr || res.stdout);
+        const target = await ui.select(
+          'Alias to delete',
+          aliases.map((al) => ({ value: al, label: `${al.source} → ${al.destination}` }))
+        );
+        if (isCancel(target)) continue;
+
+        const res = await ui.task(`Deleting alias ${target.source}…`, () =>
+          dms.delAlias(target.source, target.destination)
+        );
+        result = () => reportExec(res, `Alias ${target.source} deleted`, 'Failed to delete alias');
       }
     }
   }
@@ -342,60 +282,55 @@ export async function actionViewDkim(dm: DomainManager): Promise<void> {
   const dkim = new DkimService();
   const dms = new DmsService();
   const cf = new CloudflareService();
-  const allDomains = dm.getAllDomains();
 
-  const domain = await p.select({
-    message: 'Select domain to inspect DKIM keys:',
-    options: allDomains.map((d) => ({ value: d, label: d })),
-  });
-  if (p.isCancel(domain)) return;
+  const domain = await pickDomain(dm, 'Domain to inspect DKIM keys for');
+  if (isCancel(domain)) return;
 
-  const info = dkim.getDkimInfo(domain, config.dkimSelector);
-
-  let details = `Domain:   ${domain}\nSelector: ${config.dkimSelector}\nStatus:   ${info.exists ? '● Found on disk' : '○ Not generated'}`;
-  if (info.filePath) {
-    details += `\nPath:     ${info.filePath}`;
-  }
-  if (info.dnsValue) {
-    details += `\n\nDNS Host:  ${config.dkimSelector}._domainkey.${domain}\nType:      TXT\nValue:\n${info.dnsValue}`;
-  }
-
-  p.note(details, `DKIM Information: ${domain}`);
-
-  const options = [{ value: 'back', label: '← Back' }];
-  if (!info.exists) {
-    options.unshift({ value: 'generate', label: '🔑 Generate DKIM Key' });
-  } else {
-    options.unshift({ value: 'regenerate', label: '🔄 Regenerate DKIM Key' });
-    if (cf.isConfigured()) {
-      options.unshift({ value: 'sync_cf', label: '🌐 Publish DKIM to Cloudflare' });
+  const show = () => {
+    const info = dkim.getDkimInfo(domain, config.dkimSelector);
+    ui.begin(`DKIM · ${domain}`);
+    ui.line(`Selector  ${config.dkimSelector}`);
+    ui.line(`Status    ${info.exists ? '● key found on disk' : '○ not generated'}`);
+    if (info.filePath) ui.line(`Path      ${info.filePath}`);
+    if (info.dnsValue) {
+      ui.line(`DNS host  ${config.dkimSelector}._domainkey.${domain}  (TXT)`);
+      ui.heading('TXT value');
+      ui.raw(info.dnsValue);
+      ui.info(`To copy without line wraps: ./mailctl dkim ${domain}`);
     }
-  }
+    return info;
+  };
 
-  const choice = await p.select({
-    message: 'DKIM Actions:',
-    options,
-  });
+  const info = show();
+
+  const options: { value: string; label: string }[] = [];
+  if (!info.exists) {
+    options.push({ value: 'generate', label: 'Generate DKIM key' });
+  } else {
+    if (cf.isConfigured()) options.push({ value: 'sync_cf', label: 'Publish DKIM to Cloudflare' });
+    options.push({ value: 'regenerate', label: 'Regenerate DKIM key' });
+  }
+  options.push(BACK);
+
+  const choice = await ui.select('DKIM action', options);
+  if (isCancel(choice) || choice === 'back') return;
 
   if (choice === 'generate' || choice === 'regenerate') {
-    const s = p.spinner();
-    s.start(`Generating DKIM key for ${domain}...`);
-    const res = dms.generateDkim(domain, config.dkimSelector);
-    if (res.success) {
-      s.stop('DKIM key generated successfully!');
-    } else {
-      s.stop('Failed to generate DKIM');
-      p.log.error(res.stderr || res.stdout);
+    if (choice === 'regenerate') {
+      const sure = await ui.confirm('Regenerating replaces the key; the published DNS record must be updated. Continue?', {
+        danger: true,
+      });
+      if (isCancel(sure) || !sure) return;
     }
+    const res = await ui.task(`Generating DKIM key for ${domain}…`, () => dms.generateDkim(domain, config.dkimSelector));
+    show();
+    reportExec(res, 'DKIM key generated', 'Failed to generate DKIM key');
   } else if (choice === 'sync_cf') {
-    const s = p.spinner();
-    s.start('Publishing DKIM record to Cloudflare...');
     try {
-      await dm.syncDns(domain);
-      s.stop('DKIM published to Cloudflare!');
+      await ui.task('Publishing DKIM record to Cloudflare…', () => dm.syncDns(domain));
+      ui.success('DKIM published to Cloudflare');
     } catch (err: any) {
-      s.stop('Failed to publish DKIM');
-      p.log.error(err.message);
+      ui.error(`Failed to publish DKIM: ${err.message}`);
     }
   }
 }
@@ -404,120 +339,89 @@ export async function actionDnsOperations(dm: DomainManager): Promise<void> {
   const config = getAppConfig();
   const checker = new DnsCheckerService();
   const cf = new CloudflareService();
-  const allDomains = dm.getAllDomains();
 
-  const domain = await p.select({
-    message: 'Select domain for DNS operations:',
-    options: allDomains.map((d) => ({ value: d, label: d })),
-  });
-  if (p.isCancel(domain)) return;
+  const domain = await pickDomain(dm, 'Domain for DNS operations');
+  if (isCancel(domain)) return;
 
-  const s = p.spinner();
-  s.start(`Querying live DNS for ${domain}...`);
-  const status = await checker.checkAll(domain, config.mxHost, config.dkimSelector);
-  s.stop(`Live DNS query complete for ${domain}`);
+  const status = await ui.task(`Querying live DNS for ${domain}…`, () =>
+    checker.checkAll(domain, config.mxHost, config.dkimSelector)
+  );
 
-  let report = '';
-  const addItem = (title: string, item: any) => {
-    report += `\n[${item.status.toUpperCase()}] ${title}`;
-    if (item.records && item.records.length > 0) {
-      report += `\n  Found: ${item.records.join(', ')}`;
-    } else {
-      report += `\n  Found: <none>`;
-    }
-    if (item.expected) {
-      report += `\n  Expected: ${item.expected}`;
-    }
-    report += '\n';
+  ui.begin(`DNS health · ${domain}`);
+  const addItem = (title: string, item: DnsCheckItem) => {
+    const line = `${title}: ${item.status}`;
+    if (item.status === 'valid') ui.success(line);
+    else if (item.status === 'invalid') ui.warn(line);
+    else if (item.status === 'missing') ui.error(line);
+    else ui.info(line);
+    ui.line(`  found:    ${item.records.length > 0 ? item.records.join(', ') : '<none>'}`);
+    if (item.expected) ui.line(`  expected: ${item.expected}`);
   };
 
-  addItem('MX Record', status.mx);
-  addItem('SPF TXT Record', status.spf);
-  addItem(`DKIM TXT Record (${config.dkimSelector}._domainkey.${domain})`, status.dkim);
-  addItem(`DMARC TXT Record (_dmarc.${domain})`, status.dmarc);
+  addItem('MX', status.mx);
+  addItem('SPF', status.spf);
+  addItem(`DKIM (${config.dkimSelector}._domainkey.${domain})`, status.dkim);
+  addItem(`DMARC (_dmarc.${domain})`, status.dmarc);
 
-  p.note(report.trim(), `DNS Health Status: ${domain}`);
+  if (!cf.isConfigured()) return;
 
-  const options = [{ value: 'back', label: '← Back' }];
-  if (cf.isConfigured()) {
-    options.unshift({ value: 'sync', label: '🌐 Sync All 4 Records to Cloudflare' });
-  }
+  const choice = await ui.select('DNS action', [
+    { value: 'sync', label: 'Sync all 4 records to Cloudflare' },
+    BACK,
+  ]);
+  if (isCancel(choice) || choice === 'back') return;
 
-  const choice = await p.select({
-    message: 'DNS Actions:',
-    options,
-  });
-
-  if (choice === 'sync') {
-    const syncSpinner = p.spinner();
-    syncSpinner.start(`Synchronizing DNS records for ${domain} to Cloudflare...`);
-    try {
-      const res = await dm.syncDns(domain);
-      syncSpinner.stop(`Cloudflare synchronization complete!`);
-      for (const item of res.results) {
-        if (item.error) {
-          p.log.error(`${item.recordType} ${item.name}: ${item.error}`);
-        } else {
-          p.log.success(`${item.recordType} ${item.name}: ${item.action}`);
-        }
-      }
-    } catch (err: any) {
-      syncSpinner.stop('Sync failed');
-      p.log.error(err.message);
+  try {
+    const res = await ui.task(`Synchronizing DNS records for ${domain} to Cloudflare…`, () => dm.syncDns(domain));
+    ui.begin(`Cloudflare sync · ${domain}`);
+    for (const item of res.results) {
+      if (item.error) ui.error(`${item.recordType} ${item.name}: ${item.error}`);
+      else ui.success(`${item.recordType} ${item.name}: ${item.action}`);
     }
+  } catch (err: any) {
+    ui.error(`Sync failed: ${err.message}`);
   }
 }
 
 export async function actionDockerControl(): Promise<void> {
   const docker = new DockerService();
 
-  const choice = await p.select({
-    message: 'Docker Mailserver Container Actions:',
-    options: [
-      { value: 'status', label: '📊 Check Container Status' },
-      { value: 'up', label: '🚀 Start Container (compose up -d)' },
-      { value: 'recreate', label: '🔄 Force Recreate Container' },
-      { value: 'restart', label: '♻️ Restart Container' },
-      { value: 'down', label: '🛑 Stop Container (compose down)' },
-      { value: 'logs', label: '📜 View Recent Logs' },
-      { value: 'back', label: '← Back to Main Menu' },
-    ],
-  });
-
-  if (p.isCancel(choice) || choice === 'back') return;
+  const choice = await ui.select('Container action', [
+    { value: 'status', label: 'Check status' },
+    { value: 'logs', label: 'View recent logs' },
+    { value: 'up', label: 'Start (compose up -d)' },
+    { value: 'restart', label: 'Restart' },
+    { value: 'recreate', label: 'Force recreate' },
+    { value: 'down', label: 'Stop (compose down)' },
+    BACK,
+  ]);
+  if (isCancel(choice) || choice === 'back') return;
 
   if (choice === 'status') {
-    const status = docker.getContainerStatus();
-    p.log.info(`Container status: ${status.toUpperCase()}`);
-  } else if (choice === 'up') {
-    const s = p.spinner();
-    s.start('Starting container...');
-    const res = docker.composeUp();
-    s.stop(res.success ? 'Container started.' : 'Failed to start container.');
-    if (!res.success) p.log.error(res.stderr || res.stdout);
-  } else if (choice === 'recreate') {
-    const s = p.spinner();
-    s.start('Recreating container...');
-    const res = docker.composeUp(true);
-    s.stop(res.success ? 'Container recreated and running.' : 'Failed to recreate.');
-    if (!res.success) p.log.error(res.stderr || res.stdout);
-  } else if (choice === 'restart') {
-    const s = p.spinner();
-    s.start('Restarting container...');
-    const res = docker.composeRestart();
-    s.stop(res.success ? 'Container restarted.' : 'Failed to restart.');
-    if (!res.success) p.log.error(res.stderr || res.stdout);
-  } else if (choice === 'down') {
-    const s = p.spinner();
-    s.start('Stopping container...');
-    const res = docker.composeDown();
-    s.stop(res.success ? 'Container stopped.' : 'Failed to stop.');
-    if (!res.success) p.log.error(res.stderr || res.stdout);
+    ui.info(`Container status: ${docker.getContainerStatus().toUpperCase()}`);
   } else if (choice === 'logs') {
-    const res = docker.getLogs(40);
-    console.log();
-    console.log(chalk.dim('--- Docker Mailserver Logs (last 40 lines) ---'));
-    console.log(res.stdout || res.stderr || chalk.dim('No logs available.'));
-    console.log(chalk.dim('---------------------------------------------'));
+    const res = await ui.task('Fetching logs…', () => docker.getLogsAsync(40));
+    ui.begin('Mail server logs (last 40 lines)');
+    const out = (res.stdout || res.stderr).trimEnd();
+    if (out) ui.raw(out);
+    else ui.line('No logs available.');
+  } else if (choice === 'up') {
+    const res = await ui.task('Starting container…', () => docker.composeUpAsync());
+    reportExec(res, 'Container started', 'Failed to start container');
+  } else if (choice === 'restart') {
+    const res = await ui.task('Restarting container…', () => docker.composeRestartAsync());
+    reportExec(res, 'Container restarted', 'Failed to restart container');
+  } else if (choice === 'recreate') {
+    const sure = await ui.confirm('Recreate the mail server container? Mail is unavailable for ~30s.', { danger: true });
+    if (isCancel(sure) || !sure) return;
+    const res = await ui.task('Recreating container…', () => docker.composeUpAsync(true));
+    reportExec(res, 'Container recreated and running', 'Failed to recreate container');
+  } else if (choice === 'down') {
+    const sure = await ui.confirm('Stop the mail server? Inbound mail is deferred (senders retry) until it is started again.', {
+      danger: true,
+    });
+    if (isCancel(sure) || !sure) return;
+    const res = await ui.task('Stopping container…', () => docker.composeDownAsync());
+    reportExec(res, 'Container stopped', 'Failed to stop container');
   }
 }

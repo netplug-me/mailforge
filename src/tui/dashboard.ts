@@ -1,49 +1,31 @@
-import chalk from 'chalk';
-import { getAppConfig } from '../config.js';
 import { DockerService } from '../services/docker.js';
 import { CloudflareService } from '../services/cloudflare.js';
-import { DomainInfo } from '../types.js';
-import { renderDomainTable } from '../utils/table.js';
+import { DomainManager } from '../services/domain-manager.js';
+import { ui } from './ui.js';
 
-export function renderDashboardHeader(domains: DomainInfo[]): void {
-  const config = getAppConfig();
-  const docker = new DockerService();
-  const cf = new CloudflareService();
+let refreshSeq = 0;
 
-  const containerStatus = docker.getContainerStatus();
-  const statusBadge =
-    containerStatus === 'running'
-      ? chalk.bold.green('RUNNING')
-      : containerStatus === 'exited'
-      ? chalk.bold.yellow('EXITED')
-      : chalk.bold.red('STOPPED');
+/**
+ * Re-reads container status, Cloudflare config and live DNS for every domain.
+ * The previous dashboard stays on screen (marked "refreshing") until this finishes;
+ * if refreshes overlap, only the newest one is applied.
+ */
+export async function refreshDashboard(dm: DomainManager): Promise<void> {
+  const seq = ++refreshSeq;
+  ui.setRefreshing(true);
+  // Let the "refreshing" marker paint before the synchronous docker inspect.
+  await new Promise((r) => setTimeout(r, 30));
 
-  const cfBadge = cf.isConfigured() ? chalk.green('CONFIGURED') : chalk.dim('NOT SET (CF_API_TOKEN)');
+  const containerStatus = new DockerService().getContainerStatus();
+  const cloudflareConfigured = new CloudflareService().isConfigured();
+  let domains = ui.getState().dashboard.domains;
+  try {
+    domains = await dm.listDomains(true);
+  } catch (err: any) {
+    ui.error(`Dashboard refresh failed: ${err.message}`);
+  }
 
-  // Clear the visible screen only (not console.clear(), which also wipes scrollback in most
-  // terminals), so earlier action output can still be scrolled back to.
-  process.stdout.write('\x1b[2J\x1b[H');
-  console.log(chalk.bold.cyan('╔════════════════════════════════════════════════════════════════════════╗'));
-  console.log(chalk.bold.cyan('║') + '             ' + chalk.bold.white('DOCKER MAILSERVER & CLOUDFLARE MANAGER') + '              ' + chalk.bold.cyan('║'));
-  console.log(chalk.bold.cyan('╠════════════════════════════════════════════════════════════════════════╣'));
-  console.log(
-    chalk.bold.cyan('║') +
-      `  Primary Domain: ${chalk.bold.white(config.primaryDomain.padEnd(20))} Container: ${statusBadge.padEnd(24)}` +
-      chalk.bold.cyan('║')
-  );
-  console.log(
-    chalk.bold.cyan('║') +
-      `  MX Host:        ${chalk.bold.white(config.mxHost.padEnd(20))} Cloudflare: ${cfBadge.padEnd(23)}` +
-      chalk.bold.cyan('║')
-  );
-  console.log(
-    chalk.bold.cyan('║') +
-      `  DKIM Selector:  ${chalk.bold.white(config.dkimSelector.padEnd(20))} Registered Domains: ${chalk.bold.white(domains.length.toString().padEnd(14))}` +
-      chalk.bold.cyan('║')
-  );
-  console.log(chalk.bold.cyan('╚════════════════════════════════════════════════════════════════════════╝'));
-  console.log();
-  console.log(renderDomainTable(domains));
-  console.log(chalk.dim('Legend: ● ok/valid   ○ missing   ▲ mismatch   ? unknown'));
-  console.log();
+  if (seq === refreshSeq) {
+    ui.setDashboard({ domains, containerStatus, cloudflareConfigured, refreshedAt: new Date() });
+  }
 }

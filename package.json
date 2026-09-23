@@ -11,7 +11,8 @@
     "dev": "tsx src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:tui": "node test/tui-layout.test.mjs"
   },
   "keywords": [
     "docker-mailserver",
@@ -25,14 +26,21 @@
   "author": "RCP Solutions",
   "license": "MIT",
   "dependencies": {
-    "@clack/prompts": "^0.9.1",
     "chalk": "^5.4.1",
     "cli-table3": "^0.6.5",
     "commander": "^13.1.0",
-    "dotenv": "^16.4.7"
+    "dotenv": "^16.4.7",
+    "ink": "^7.1.1",
+    "ink-select-input": "^6.2.0",
+    "ink-spinner": "^5.0.0",
+    "ink-text-input": "^6.0.0",
+    "react": "^19.3.0",
+    "string-width": "^8.2.2"
   },
   "devDependencies": {
     "@types/node": "^22.13.9",
+    "@types/react": "^19.3.0",
+    "ink-testing-library": "^4.0.0",
     "tsx": "^4.19.3",
     "typescript": "^5.7.3"
   }
