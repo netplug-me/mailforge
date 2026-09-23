@@ -18,7 +18,7 @@ const ACTIONS = {
   remove_domain: { label: 'Remove domain', run: actionRemoveDomain },
   mailboxes: { label: 'Mailboxes & aliases', run: actionManageMailboxes },
   dkim: { label: 'DKIM keys', run: actionViewDkim },
-  dns: { label: 'DNS health & Cloudflare sync', run: actionDnsOperations },
+  dns: { label: 'DNS health & sync', run: actionDnsOperations },
   docker: { label: 'Mail server container', run: actionDockerControl },
 } as const;
 

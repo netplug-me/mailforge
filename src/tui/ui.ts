@@ -1,4 +1,4 @@
-import { DomainInfo } from '../types.js';
+import { CloudflareZone, DomainInfo } from '../types.js';
 
 // Bridge between the imperative action flows (actions.ts) and the Ink view (App.tsx).
 // Actions `await ui.select(...)` etc.; the view renders whatever prompt is pending and
@@ -49,6 +49,9 @@ export interface DashboardData {
   domains: DomainInfo[];
   containerStatus: 'running' | 'exited' | 'stopped' | 'not_found';
   cloudflareConfigured: boolean;
+  /** Zones on the Cloudflare account; undefined until first loaded. */
+  zones?: CloudflareZone[];
+  zonesError?: string;
   refreshedAt?: Date;
 }
 

@@ -45,7 +45,7 @@ function Header({ dashboard, refreshing }: { dashboard: DashboardData; refreshin
   const config = getAppConfig();
   const time = dashboard.refreshedAt?.toLocaleTimeString([], { hour12: false });
   return (
-    <Box borderStyle="round" borderColor="cyan" flexDirection="column" paddingX={1}>
+    <Box borderStyle="round" borderColor="cyan" flexDirection="column" paddingX={1} flexGrow={1}>
       <Box justifyContent="space-between">
         <Text bold color="cyan">
           Mail Server Manager
@@ -114,8 +114,36 @@ function DnsCell({ item }: { item: DnsCheckItem }) {
   }
 }
 
-const COLS = { type: 9, mbx: 5, dkim: 7, dns: 10 };
-const FIXED_COLS = COLS.type + COLS.mbx + COLS.dkim + 4 * COLS.dns;
+interface Column {
+  key: string;
+  header: string;
+  width: number;
+  render: (d: DomainInfo) => React.ReactNode;
+}
+
+const COLUMNS: Column[] = [
+  {
+    key: 'type',
+    header: 'TYPE',
+    width: 9,
+    render: (d) => (d.isPrimary ? <Text color="blue">primary</Text> : <Text dimColor>virtual</Text>),
+  },
+  { key: 'mbx', header: 'MBX', width: 5, render: (d) => <Text>{d.mailboxCount}</Text> },
+  {
+    key: 'dkim',
+    header: 'DKIM',
+    width: 7,
+    render: (d) => (d.dkimExists ? <Text color="green">● yes</Text> : <Text color="red">○ no</Text>),
+  },
+  { key: 'mx', header: 'MX', width: 10, render: (d) => <DnsCell item={d.dnsStatus.mx} /> },
+  { key: 'spf', header: 'SPF', width: 10, render: (d) => <DnsCell item={d.dnsStatus.spf} /> },
+  { key: 'dkimdns', header: 'DKIM DNS', width: 10, render: (d) => <DnsCell item={d.dnsStatus.dkim} /> },
+  { key: 'dmarc', header: 'DMARC', width: 10, render: (d) => <DnsCell item={d.dnsStatus.dmarc} /> },
+];
+
+/** Dropped first, in this order, when the terminal is too narrow for every column. */
+const OPTIONAL_COLUMNS = ['type', 'mbx'];
+const MIN_DOMAIN_WIDTH = 12;
 
 function DomainTable({
   domains,
@@ -128,25 +156,28 @@ function DomainTable({
 }) {
   // Border + padding take 4 columns. The domain column gets what's left (truncated if
   // it must), so the row never overflows the box.
+  const inner = columns - 4;
+  let cols = COLUMNS;
+  for (const key of OPTIONAL_COLUMNS) {
+    if (inner - cols.reduce((sum, c) => sum + c.width, 0) >= MIN_DOMAIN_WIDTH) break;
+    cols = cols.filter((c) => c.key !== key);
+  }
+  const fixed = cols.reduce((sum, c) => sum + c.width, 0);
   const wanted = Math.max(8, ...domains.map((d) => stringWidth(d.domain))) + 2;
-  const domainWidth = Math.max(8, Math.min(wanted, columns - 4 - FIXED_COLS));
-  const headers: [string, number][] = [
-    ['DOMAIN', domainWidth],
-    ['TYPE', COLS.type],
-    ['MBX', COLS.mbx],
-    ['DKIM', COLS.dkim],
-    ['MX', COLS.dns],
-    ['SPF', COLS.dns],
-    ['DKIM DNS', COLS.dns],
-    ['DMARC', COLS.dns],
-  ];
+  const domainWidth = Math.max(8, Math.min(wanted, inner - fixed));
+
   return (
     <Box borderStyle="round" borderColor="gray" flexDirection="column" paddingX={1}>
       <Box>
-        {headers.map(([h, w]) => (
-          <Cell key={h} width={w}>
+        <Cell width={domainWidth}>
+          <Text bold color="cyan" wrap="truncate">
+            DOMAIN
+          </Text>
+        </Cell>
+        {cols.map((c) => (
+          <Cell key={c.key} width={c.width}>
             <Text bold color="cyan" wrap="truncate">
-              {h}
+              {c.header}
             </Text>
           </Cell>
         ))}
@@ -161,27 +192,11 @@ function DomainTable({
               {d.domain}
             </Text>
           </Cell>
-          <Cell width={COLS.type}>
-            {d.isPrimary ? <Text color="blue">primary</Text> : <Text dimColor>virtual</Text>}
-          </Cell>
-          <Cell width={COLS.mbx}>
-            <Text>{d.mailboxCount}</Text>
-          </Cell>
-          <Cell width={COLS.dkim}>
-            {d.dkimExists ? <Text color="green">● yes</Text> : <Text color="red">○ no</Text>}
-          </Cell>
-          <Cell width={COLS.dns}>
-            <DnsCell item={d.dnsStatus.mx} />
-          </Cell>
-          <Cell width={COLS.dns}>
-            <DnsCell item={d.dnsStatus.spf} />
-          </Cell>
-          <Cell width={COLS.dns}>
-            <DnsCell item={d.dnsStatus.dkim} />
-          </Cell>
-          <Cell width={COLS.dns}>
-            <DnsCell item={d.dnsStatus.dmarc} />
-          </Cell>
+          {cols.map((c) => (
+            <Cell key={c.key} width={c.width}>
+              {c.render(d)}
+            </Cell>
+          ))}
         </Box>
       ))}
     </Box>
@@ -433,12 +448,171 @@ function CompactHeader({ dashboard, refreshing }: { dashboard: DashboardData; re
   );
 }
 
+// ── Cloudflare zones ─────────────────────────────────────────────────────────
+
+interface ZoneItem {
+  name: string;
+  status: string;
+  /** The mail server already handles this zone or a subdomain of it. */
+  mail: boolean;
+}
+
+function zoneItems(dashboard: DashboardData): ZoneItem[] {
+  return (dashboard.zones ?? []).map((z) => ({
+    name: z.name,
+    status: z.status,
+    mail: dashboard.domains.some((d) => d.domain === z.name || d.domain.endsWith(`.${z.name}`)),
+  }));
+}
+
+/** Text shown instead of the list when there is no list to show. */
+function zonesMessage(dashboard: DashboardData): string | undefined {
+  if (!dashboard.cloudflareConfigured) return 'Set CF_API_TOKEN to list zones';
+  if (!dashboard.zones) return dashboard.zonesError ? `Error: ${dashboard.zonesError}` : 'Loading…';
+  if (dashboard.zones.length === 0) return 'No zones on this account';
+}
+
+function zonesTitle(dashboard: DashboardData): string {
+  const count = dashboard.zones ? ` (${dashboard.zones.length})` : '';
+  // A failed refresh keeps the previous list on screen.
+  const stale = dashboard.zones && dashboard.zonesError ? ' · stale' : '';
+  return `Cloudflare zones${count}${stale}`;
+}
+
+function zoneLabel(z: ZoneItem): string {
+  return z.status === 'active' ? z.name : `${z.name} (${z.status})`;
+}
+
+function ZoneEntry({ zone }: { zone: ZoneItem }) {
+  return (
+    <Text wrap="truncate-middle">
+      {zone.mail ? <Text color="green">● </Text> : <Text dimColor>○ </Text>}
+      <Text bold={zone.mail} dimColor={!zone.mail}>
+        {zone.name}
+      </Text>
+      {zone.status !== 'active' && <Text color="yellow"> ({zone.status})</Text>}
+    </Text>
+  );
+}
+
+const MAX_ZONES_BESIDE_HEADER = 8;
+
+/** Content rows of the zones column (title + entries or message). */
+function zonesColumnRows(dashboard: DashboardData): number {
+  if (zonesMessage(dashboard)) return 2;
+  const n = dashboard.zones!.length;
+  return 1 + Math.min(n, MAX_ZONES_BESIDE_HEADER) + (n > MAX_ZONES_BESIDE_HEADER ? 1 : 0);
+}
+
+function zonesColumnWidth(dashboard: DashboardData): number {
+  const longest = Math.max(stringWidth(zonesTitle(dashboard)), ...zoneItems(dashboard).map((z) => 2 + stringWidth(zoneLabel(z))));
+  return Math.min(40, Math.max(26, longest + 4));
+}
+
+/** Zones listed one per line; sits to the right of the full header. */
+function ZonesColumn({ dashboard, width }: { dashboard: DashboardData; width: number }) {
+  const message = zonesMessage(dashboard);
+  const items = zoneItems(dashboard);
+  const shown = items.slice(0, MAX_ZONES_BESIDE_HEADER);
+  return (
+    <Box borderStyle="round" borderColor="cyan" flexDirection="column" paddingX={1} width={width} flexShrink={0}>
+      <Text bold color="cyan" wrap="truncate">
+        {zonesTitle(dashboard)}
+      </Text>
+      {message ? (
+        <Text dimColor={!dashboard.zonesError} color={dashboard.zonesError ? 'red' : undefined} wrap="truncate">
+          {message}
+        </Text>
+      ) : (
+        <>
+          {shown.map((z) => (
+            <ZoneEntry key={z.name} zone={z} />
+          ))}
+          {items.length > shown.length && <Text dimColor>+{items.length - shown.length} more</Text>}
+        </>
+      )}
+    </Box>
+  );
+}
+
+type Chip =
+  | { kind: 'title'; text: string }
+  | { kind: 'message'; text: string }
+  | { kind: 'more'; text: string }
+  | { kind: 'zone'; zone: ZoneItem };
+
+const chipText = (c: Chip) => (c.kind === 'zone' ? `○ ${zoneLabel(c.zone)}` : c.text);
+const CHIP_GAP = 3;
+
+/**
+ * Greedy line packing so the box height is known before rendering. Past `maxLines`
+ * the remaining zones collapse into a "+N more" chip.
+ */
+function packZoneChips(dashboard: DashboardData, width: number, maxLines: number): Chip[][] {
+  const message = zonesMessage(dashboard);
+  const chips: Chip[] = [
+    { kind: 'title', text: zonesTitle(dashboard) },
+    ...(message ? [{ kind: 'message', text: message } as Chip] : zoneItems(dashboard).map((zone) => ({ kind: 'zone', zone }) as Chip)),
+  ];
+  const lines: Chip[][] = [];
+  let line: Chip[] = [];
+  let used = 0;
+  for (const chip of chips) {
+    const w = stringWidth(chipText(chip));
+    if (line.length > 0 && used + CHIP_GAP + w > width) {
+      lines.push(line);
+      line = [];
+      used = 0;
+    }
+    used += (line.length > 0 ? CHIP_GAP : 0) + w;
+    line.push(chip);
+  }
+  if (line.length) lines.push(line);
+  if (lines.length <= maxLines) return lines;
+
+  const kept = lines.slice(0, maxLines);
+  const last = kept[kept.length - 1];
+  const zoneCount = chips.filter((c) => c.kind === 'zone').length;
+  const hiddenCount = () => zoneCount - kept.flat().filter((c) => c.kind === 'zone').length;
+  const lineWidth = (l: Chip[]) => l.reduce((sum, c, i) => sum + (i ? CHIP_GAP : 0) + stringWidth(chipText(c)), 0);
+  const moreChip = (): Chip => ({ kind: 'more', text: `+${hiddenCount()} more` });
+  while (last.length > 1 && lineWidth([...last, moreChip()]) > width) last.pop();
+  last.push(moreChip());
+  return kept;
+}
+
+/** Zones listed inline and wrapped; used under the header on narrow or short terminals. */
+function ZonesInline({ lines }: { lines: Chip[][] }) {
+  return (
+    <Box borderStyle="round" borderColor="cyan" flexDirection="column" paddingX={1}>
+      {lines.map((line, i) => (
+        <Box key={i} gap={CHIP_GAP}>
+          {line.map((chip, j) =>
+            chip.kind === 'title' ? (
+              <Text key={j} bold color="cyan" wrap="truncate">
+                {chip.text}
+              </Text>
+            ) : chip.kind === 'message' || chip.kind === 'more' ? (
+              <Text key={j} dimColor wrap="truncate">
+                {chip.text}
+              </Text>
+            ) : (
+              <ZoneEntry key={j} zone={chip.zone} />
+            )
+          )}
+        </Box>
+      ))}
+    </Box>
+  );
+}
+
 // ── App ──────────────────────────────────────────────────────────────────────
 
-const SIDE_BY_SIDE_MIN_COLUMNS = 76;
+const SIDE_BY_SIDE_MIN_COLUMNS = 70;
 /** Output rows (inside the border) kept visible when panels are stacked. */
 const MIN_STACKED_OUTPUT_ROWS = 6;
 const COMPACT_HEADER_MAX_ROWS = 32;
+const ZONES_BESIDE_HEADER_MIN_COLUMNS = 100;
 
 export function App() {
   const state = useSyncExternalStore(ui.subscribe, ui.getState);
@@ -446,7 +620,14 @@ export function App() {
   const { prompt, busy, dashboard, refreshing } = state;
 
   const compact = rows < COMPACT_HEADER_MAX_ROWS;
-  const headerRows = compact ? 3 : 6;
+  // Zones go beside the full header when there is room, otherwise in a wrapped box below it.
+  const zonesBeside = !compact && columns >= ZONES_BESIDE_HEADER_MIN_COLUMNS;
+  const zonesWidth = zonesColumnWidth(dashboard);
+  // Short terminals cap the wrapped list so the menu and output keep their room.
+  const zoneLines = zonesBeside ? [] : packZoneChips(dashboard, columns - 4, compact ? 2 : 4);
+  const headerRows = zonesBeside
+    ? 2 + Math.max(4, zonesColumnRows(dashboard))
+    : (compact ? 3 : 6) + 2 + zoneLines.length;
   const tableRows = 3 + Math.max(1, dashboard.domains.length);
   // Header, table, footer (1) and one spare row so the frame never fills the terminal.
   const body = Math.max(8, rows - headerRows - tableRows - 1 - 1);
@@ -464,10 +645,20 @@ export function App() {
 
   return (
     <Box flexDirection="column" width={columns}>
-      {compact ? (
-        <CompactHeader dashboard={dashboard} refreshing={refreshing} />
+      {zonesBeside ? (
+        <Box gap={1}>
+          <Header dashboard={dashboard} refreshing={refreshing} />
+          <ZonesColumn dashboard={dashboard} width={zonesWidth} />
+        </Box>
       ) : (
-        <Header dashboard={dashboard} refreshing={refreshing} />
+        <>
+          {compact ? (
+            <CompactHeader dashboard={dashboard} refreshing={refreshing} />
+          ) : (
+            <Header dashboard={dashboard} refreshing={refreshing} />
+          )}
+          <ZonesInline lines={zoneLines} />
+        </>
       )}
       <DomainTable domains={dashboard.domains} refreshing={refreshing} columns={columns} />
 

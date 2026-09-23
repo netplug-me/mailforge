@@ -43,6 +43,20 @@ export class CloudflareService {
   }
 
   /**
+   * Lists every zone the API token can see, sorted by name.
+   */
+  public async listZones(): Promise<CloudflareZone[]> {
+    const perPage = 50;
+    const zones: CloudflareZone[] = [];
+    for (let page = 1; ; page++) {
+      const batch = await this.request<CloudflareZone[]>(`/zones?per_page=${perPage}&page=${page}`);
+      zones.push(...batch);
+      if (batch.length < perPage) break;
+    }
+    return zones.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  /**
    * Finds the best matching Zone ID for a given domain or subdomain.
    * Walks up the domain labels (e.g. sub.example.com -> example.com) to find the zone.
    */

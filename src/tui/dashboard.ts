@@ -16,16 +16,26 @@ export async function refreshDashboard(dm: DomainManager): Promise<void> {
   // Let the "refreshing" marker paint before the synchronous docker inspect.
   await new Promise((r) => setTimeout(r, 30));
 
+  const previous = ui.getState().dashboard;
   const containerStatus = new DockerService().getContainerStatus();
-  const cloudflareConfigured = new CloudflareService().isConfigured();
-  let domains = ui.getState().dashboard.domains;
-  try {
-    domains = await dm.listDomains(true);
-  } catch (err: any) {
-    ui.error(`Dashboard refresh failed: ${err.message}`);
-  }
+  const cf = new CloudflareService();
+  const cloudflareConfigured = cf.isConfigured();
+
+  const [domainsResult, zonesResult] = await Promise.allSettled([
+    dm.listDomains(true),
+    cloudflareConfigured ? cf.listZones() : Promise.resolve(undefined),
+  ]);
+
+  let domains = previous.domains;
+  if (domainsResult.status === 'fulfilled') domains = domainsResult.value;
+  else ui.error(`Dashboard refresh failed: ${domainsResult.reason?.message ?? domainsResult.reason}`);
+
+  // On a failed zone lookup keep the last known list and show the error in the zones box.
+  const zones = zonesResult.status === 'fulfilled' ? zonesResult.value : previous.zones;
+  const zonesError =
+    zonesResult.status === 'rejected' ? String(zonesResult.reason?.message ?? zonesResult.reason) : undefined;
 
   if (seq === refreshSeq) {
-    ui.setDashboard({ domains, containerStatus, cloudflareConfigured, refreshedAt: new Date() });
+    ui.setDashboard({ domains, containerStatus, cloudflareConfigured, zones, zonesError, refreshedAt: new Date() });
   }
 }
