@@ -221,7 +221,7 @@ function tailThatFits(lines: OutputLine[], rows: number, width: number) {
     used += rowsFor(lines[--start], width);
   }
   // Make room for the "earlier lines" notice.
-  if (start > 0 && start < lines.length && used + 1 > rows) start++;
+  if (start > 0 && used + 1 > rows && lines.length - start > 1) start++;
   return { shown: lines.slice(start), hidden: start };
 }
 
@@ -435,7 +435,9 @@ function CompactHeader({ dashboard, refreshing }: { dashboard: DashboardData; re
 
 // ── App ──────────────────────────────────────────────────────────────────────
 
-const SIDE_BY_SIDE_MIN_COLUMNS = 90;
+const SIDE_BY_SIDE_MIN_COLUMNS = 76;
+/** Output rows (inside the border) kept visible when panels are stacked. */
+const MIN_STACKED_OUTPUT_ROWS = 6;
 const COMPACT_HEADER_MAX_ROWS = 32;
 
 export function App() {
@@ -450,8 +452,11 @@ export function App() {
   const body = Math.max(8, rows - headerRows - tableRows - 1 - 1);
 
   const sideBySide = columns >= SIDE_BY_SIDE_MIN_COLUMNS;
-  const promptWidth = sideBySide ? Math.min(46, Math.max(34, Math.floor(columns * 0.35))) : columns;
-  const promptHeight = sideBySide ? body : Math.min(body - 4, promptRowsFor(prompt, busy) + 2);
+  const promptWidth = sideBySide ? Math.min(46, Math.max(32, Math.floor(columns * 0.35))) : columns;
+  // Stacked: the menu scrolls rather than squeezing the output panel below a readable size.
+  const promptHeight = sideBySide
+    ? body
+    : Math.max(5, Math.min(body - (MIN_STACKED_OUTPUT_ROWS + 3), promptRowsFor(prompt, busy) + 2));
   const outputWidth = sideBySide ? columns - promptWidth - 1 : columns;
   const outputHeight = sideBySide ? body : body - promptHeight;
 

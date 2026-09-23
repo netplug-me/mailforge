@@ -34,7 +34,9 @@ async function mainLoop(dm: DomainManager): Promise<void> {
       { value: 'exit', label: 'Exit' },
     ]);
 
-    if (isCancel(choice) || choice === 'exit') return;
+    // Esc means "back" everywhere; at the top level there is nowhere to go back to.
+    if (isCancel(choice)) continue;
+    if (choice === 'exit') return;
     if (choice === 'refresh') {
       await refreshDashboard(dm);
       continue;

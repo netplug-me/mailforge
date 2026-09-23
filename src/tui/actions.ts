@@ -417,7 +417,7 @@ export async function actionDockerControl(): Promise<void> {
     const res = await ui.task('Recreating container…', () => docker.composeUpAsync(true));
     reportExec(res, 'Container recreated and running', 'Failed to recreate container');
   } else if (choice === 'down') {
-    const sure = await ui.confirm('Stop the mail server? Inbound mail is deferred (senders retry) until it is started again.', {
+    const sure = await ui.confirm(`Stop the mail server? Inbound mail can't be delivered until it is started again.`, {
       danger: true,
     });
     if (isCancel(sure) || !sure) return;

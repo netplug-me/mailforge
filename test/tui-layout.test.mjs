@@ -26,10 +26,14 @@ ui.begin('DKIM · switchboard.llc');
 ui.success('DKIM key generated');
 ui.raw('v=DKIM1; k=rsa; p=' + 'A'.repeat(300));
 for (let i = 0; i < 60; i++) ui.line(`log line ${i}`);
-ui.select('What do you want to do?', ['Refresh', 'Add', 'Remove', 'Exit'].map((l) => ({ value: l, label: l })));
+// Same size as the real main menu.
+const MENU = ['Refresh status & DNS', 'Add domain / sub-domain', 'Remove domain', 'Mailboxes & aliases', 'DKIM keys',
+  'DNS health & Cloudflare sync', 'Mail server container', 'Exit'];
+ui.select('What do you want to do?', MENU.map((l) => ({ value: l, label: l })));
+const MIN_VISIBLE_OUTPUT = 5;
 
 let failures = 0;
-for (const [cols, rows] of [[80, 24], [80, 30], [100, 40], [140, 50], [200, 60]]) {
+for (const [cols, rows] of [[72, 24], [76, 24], [80, 24], [80, 26], [80, 30], [100, 40], [140, 50], [200, 60]]) {
   const r = render(React.createElement(App));
   Object.defineProperty(r.stdout, 'columns', { value: cols });
   Object.defineProperty(r.stdout, 'rows', { value: rows });
@@ -52,8 +56,12 @@ for (const [cols, rows] of [[80, 24], [80, 30], [100, 40], [140, 50], [200, 60]]
   }
   checkBox();
   if (lines.length >= rows) problems.push(`frame is ${lines.length} rows, terminal is ${rows}`);
+  const visibleOutput = lines.filter((l) => /log line \d+/.test(l)).length;
+  if (visibleOutput < MIN_VISIBLE_OUTPUT) problems.push(`only ${visibleOutput} output line(s) visible`);
+  const menuVisible = lines.some((l) => l.includes('❯ Refresh'));
+  if (!menuVisible) problems.push('menu cursor not visible');
 
-  console.log(`${cols}x${rows}: ${problems.length ? 'FAIL' : 'ok'}`);
+  console.log(`${cols}x${rows}: ${problems.length ? 'FAIL' : 'ok'} (${visibleOutput} output lines visible)`);
   for (const p of problems) console.log('  ' + p);
   failures += problems.length;
   r.unmount();
