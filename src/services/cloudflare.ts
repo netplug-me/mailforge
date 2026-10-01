@@ -7,6 +7,46 @@ export interface CloudflareApiResponse<T> {
   result: T;
 }
 
+/**
+ * Strips the outer quotes Cloudflare sometimes adds to / strips from TXT content.
+ */
+export function normalizeTxtContent(c: string): string {
+  return c.replace(/^"|"$/g, '').trim();
+}
+
+/**
+ * Leading tag of a TXT record: the part before the first space or semicolon,
+ * lowercased ("v=spf1", "v=dmarc1", "v=dkim1", "google-site-verification=…").
+ * SPF is space-delimited, DKIM/DMARC semicolon-delimited, so one split covers both.
+ */
+export function txtLeadingTag(c: string): string {
+  return normalizeTxtContent(c).split(/[;\s]/)[0].toLowerCase();
+}
+
+/**
+ * Picks which existing TXT record (same name) a desired record corresponds to.
+ *
+ * Several TXT records can share a name — e.g. SPF and a site-verification
+ * record at the apex. Matching is done on the leading tag, so syncing SPF can
+ * never clobber an unrelated record. Returns undefined (→ create a new record)
+ * when nothing matches; when several records share the tag (duplicates), the
+ * one whose full content already matches is preferred.
+ */
+export function selectTxtTarget(
+  existing: CloudflareDnsRecord[],
+  desired: CloudflareDnsRecord,
+): CloudflareDnsRecord | undefined {
+  const tag = txtLeadingTag(desired.content);
+  const candidates = existing.filter((r) => txtLeadingTag(r.content) === tag);
+  if (candidates.length === 1) {
+    return candidates[0];
+  }
+  if (candidates.length > 1) {
+    return candidates.find((r) => normalizeTxtContent(r.content) === normalizeTxtContent(desired.content)) ?? candidates[0];
+  }
+  return undefined;
+}
+
 export class CloudflareService {
   private apiToken: string | undefined;
   private baseUrl = 'https://api.cloudflare.com/client/v4';
@@ -160,20 +200,18 @@ export class CloudflareService {
       type: record.type,
     });
 
-    // Cloudflare TXT records sometimes strip outer quotes when querying
-    const normalizeContent = (c: string) => c.replace(/^"|"$/g, '').trim();
-
     let target: CloudflareDnsRecord | undefined;
     if (record.type === 'MX') {
       // Find matching MX record
       target = existingList.find((r) => r.content.toLowerCase() === record.content.toLowerCase());
-    } else {
-      // For TXT (SPF, DKIM, DMARC), match prefix or single TXT record
-      target = existingList[0];
+    } else if (record.type === 'TXT') {
+      // TXT records can share a name (SPF + site-verification at the apex);
+      // identify ours by leading tag, never by list position.
+      target = selectTxtTarget(existingList, record);
     }
 
     if (target && target.id) {
-      const contentChanged = normalizeContent(target.content) !== normalizeContent(record.content);
+      const contentChanged = normalizeTxtContent(target.content) !== normalizeTxtContent(record.content);
       const priorityChanged = record.type === 'MX' && target.priority !== record.priority;
 
       if (!contentChanged && !priorityChanged) {

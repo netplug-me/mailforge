@@ -12,7 +12,9 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
-    "test:tui": "node test/tui-layout.test.mjs"
+    "test:unit": "node test/txt-upsert.test.mjs",
+    "test:tui": "node test/tui-layout.test.mjs",
+    "test": "npm run build && npm run test:unit && npm run test:tui"
   },
   "keywords": [
     "docker-mailserver",
