@@ -12,6 +12,10 @@ Replaces fragmented bash scripts (`list-domains.sh`, `add-domain.sh`, `remove-do
   - Live Docker container status, primary domain, and MX hostname display.
   - Multi-column domain health matrix: mailbox counts, DKIM generation status, and live DNS checks (MX, SPF, DKIM, DMARC).
   - Interactive wizards to add/remove domains, manage mailboxes/aliases, inspect DKIM keys, and control containers.
+- **Toolbox (TUI ▸ Toolbox)**: mail queue (retry / purge deferred), colour-coded delivery log, mailbox quota bars,
+  connected IMAP clients, fail2ban bans + unban, TLS certificate countdown, inbound/outbound path check,
+  Postmark 7-day stats and recent bounces (needs `POSTMARK_SERVER_TOKEN`), and a send-test-email action.
+  The header also shows certificate days left and the bridge / tunnel / relay state.
 - **Automated Cloudflare DNS Management**:
   - Automatic zone detection (apex and sub-domains).
   - Automatically provisions or updates MX, SPF (`v=spf1`), DKIM (`mail._domainkey`), and DMARC (`_dmarc`) records.

@@ -1,7 +1,8 @@
 import { DockerService } from '../services/docker.js';
 import { CloudflareService } from '../services/cloudflare.js';
 import { DomainManager } from '../services/domain-manager.js';
-import { ui } from './ui.js';
+import { OpsService } from '../services/ops.js';
+import { Health, ui } from './ui.js';
 
 let refreshSeq = 0;
 
@@ -21,9 +22,10 @@ export async function refreshDashboard(dm: DomainManager): Promise<void> {
   const cf = new CloudflareService();
   const cloudflareConfigured = cf.isConfigured();
 
-  const [domainsResult, zonesResult] = await Promise.allSettled([
+  const [domainsResult, zonesResult, healthResult] = await Promise.allSettled([
     dm.listDomains(true),
     cloudflareConfigured ? cf.listZones() : Promise.resolve(undefined),
+    loadHealth(containerStatus === 'running'),
   ]);
 
   let domains = previous.domains;
@@ -36,6 +38,18 @@ export async function refreshDashboard(dm: DomainManager): Promise<void> {
     zonesResult.status === 'rejected' ? String(zonesResult.reason?.message ?? zonesResult.reason) : undefined;
 
   if (seq === refreshSeq) {
-    ui.setDashboard({ domains, containerStatus, cloudflareConfigured, zones, zonesError, refreshedAt: new Date() });
+    const health = healthResult.status === 'fulfilled' ? healthResult.value : previous.health;
+    ui.setDashboard({ domains, containerStatus, cloudflareConfigured, health, zones, zonesError, refreshedAt: new Date() });
   }
+}
+
+async function loadHealth(mailserverUp: boolean): Promise<Health> {
+  const ops = new OpsService();
+  const docker = new DockerService();
+  const [bridge, tunnel, cert] = await Promise.all([
+    docker.serviceState('inbound-bridge'),
+    docker.serviceState('cloudflared'),
+    mailserverUp ? ops.cert().catch(() => undefined) : Promise.resolve(undefined),
+  ]);
+  return { bridge, tunnel, relay: Boolean(process.env.POSTMARK_SERVER_TOKEN), certDays: cert?.daysLeft };
 }

@@ -14,7 +14,8 @@
     "typecheck": "tsc --noEmit",
     "test:unit": "node test/txt-upsert.test.mjs",
     "test:tui": "node test/tui-layout.test.mjs",
-    "test": "npm run build && npm run test:unit && npm run test:tui"
+    "test": "npm run build && npm run test:unit && npm run test:ops && npm run test:tui",
+    "test:ops": "node test/ops-parsers.test.mjs"
   },
   "keywords": [
     "docker-mailserver",

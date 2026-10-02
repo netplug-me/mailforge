@@ -22,14 +22,15 @@ const DOMAINS = [
       dnsStatus: { mx: item('valid'), spf: item('unknown'), dkim: item('valid'), dmarc: item('missing') } },
 ];
 const setDashboard = (zones) =>
-  ui.setDashboard({ containerStatus: 'running', cloudflareConfigured: true, refreshedAt: new Date(), domains: DOMAINS, zones });
+  ui.setDashboard({ containerStatus: 'running', cloudflareConfigured: true,
+    health: { bridge: 'running', tunnel: 'running', relay: true, certDays: 82 }, refreshedAt: new Date(), domains: DOMAINS, zones });
 ui.begin('DKIM · switchboard.llc');
 ui.success('DKIM key generated');
 ui.raw('v=DKIM1; k=rsa; p=' + 'A'.repeat(300));
 for (let i = 0; i < 60; i++) ui.line(`log line ${i}`);
 // Same size as the real main menu.
 const MENU = ['Refresh status & DNS', 'Add domain / sub-domain', 'Remove domain', 'Mailboxes & aliases', 'DKIM keys',
-  'DNS health & sync', 'Mail server container', 'Exit'];
+  'DNS health & sync', 'Mail server container', 'Toolbox ▸', 'Exit'];
 ui.select('What do you want to do?', MENU.map((l) => ({ value: l, label: l })));
 const MIN_VISIBLE_OUTPUT = 5;
 
@@ -61,7 +62,7 @@ for (const [cols, rows] of [[64, 30], [72, 24], [76, 24], [80, 24], [80, 26], [8
   if (lines.length >= rows) problems.push(`frame is ${lines.length} rows, terminal is ${rows}`);
   const visibleOutput = lines.filter((l) => /log line \d+/.test(l)).length;
   if (visibleOutput < MIN_VISIBLE_OUTPUT) problems.push(`only ${visibleOutput} output line(s) visible`);
-  const menuVisible = lines.some((l) => l.includes('❯ Refresh'));
+  const menuVisible = lines.some((l) => /❯ (\S+ )?Refresh/.test(l));
   if (!menuVisible) problems.push('menu cursor not visible');
   // Every zone is either listed or counted in "+N more".
   const frame = lines.join('\n');

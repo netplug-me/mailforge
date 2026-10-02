@@ -12,6 +12,10 @@ export const isCancel = (v: unknown): v is Cancel => v === CANCEL;
 export interface SelectOption<T> {
   value: T;
   label: string;
+  /** Glyph shown before the label, in `color`. */
+  icon?: string;
+  color?: string;
+  /** Dim text after the label. */
   hint?: string;
 }
 
@@ -43,12 +47,24 @@ export type OutputKind = 'info' | 'success' | 'warn' | 'error' | 'text' | 'headi
 export interface OutputLine {
   kind: OutputKind;
   text: string;
+  /** Overrides the colour the kind would get. */
+  color?: string;
+}
+
+/** State of the mail path, shown in the header. Each stage is a compose service state or undefined when absent. */
+export interface Health {
+  bridge?: string;
+  tunnel?: string;
+  relay: boolean;
+  /** Days until the TLS certificate expires. */
+  certDays?: number;
 }
 
 export interface DashboardData {
   domains: DomainInfo[];
   containerStatus: 'running' | 'exited' | 'stopped' | 'not_found';
   cloudflareConfigured: boolean;
+  health?: Health;
   /** Zones on the Cloudflare account; undefined until first loaded. */
   zones?: CloudflareZone[];
   zonesError?: string;
@@ -162,8 +178,8 @@ class UiController {
     this.set({ outputTitle: title, output: [] });
   }
 
-  private push(kind: OutputKind, text: string) {
-    const lines = text.split(/\r?\n/).map((t) => ({ kind, text: t }));
+  private push(kind: OutputKind, text: string, color?: string) {
+    const lines = text.split(/\r?\n/).map((t) => ({ kind, text: t, color }));
     this.set({ output: [...this.state.output, ...lines] });
   }
 
@@ -172,6 +188,8 @@ class UiController {
   warn = (t: string) => this.push('warn', t);
   error = (t: string) => this.push('error', t);
   line = (t: string) => this.push('text', t);
+  /** An indented line in an explicit colour (colour names or #hex). */
+  colored = (t: string, color: string) => this.push('text', t, color);
   heading = (t: string) => this.push('heading', t);
   /** Unstyled, unindented: for values the user needs to copy (DKIM TXT, logs). */
   raw = (t: string) => this.push('raw', t);

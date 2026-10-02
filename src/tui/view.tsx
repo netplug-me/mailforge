@@ -6,7 +6,48 @@ import Spinner from 'ink-spinner';
 import stringWidth from 'string-width';
 import { getAppConfig } from '../config.js';
 import { DnsCheckItem, DomainInfo } from '../types.js';
-import { CANCEL, DashboardData, OutputLine, Prompt, ui } from './ui.js';
+import { CANCEL, DashboardData, Health, OutputLine, Prompt, ui } from './ui.js';
+
+// ── Palette ──────────────────────────────────────────────────────────────────
+// Green / yellow / red stay reserved for ok / diff / missing; everything else is decoration.
+
+export const PALETTE = {
+  header: '#38bdf8',
+  zones: '#f472b6',
+  table: '#818cf8',
+  menu: '#2dd4bf',
+  output: '#a78bfa',
+  accent: '#fbbf24',
+  gradient: ['#38bdf8', '#818cf8', '#f472b6'],
+} as const;
+
+function hexToRgb(hex: string): [number, number, number] {
+  const n = parseInt(hex.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+function gradientAt(stops: readonly string[], t: number): string {
+  const x = Math.min(0.9999, Math.max(0, t)) * (stops.length - 1);
+  const i = Math.floor(x);
+  const a = hexToRgb(stops[i]);
+  const b = hexToRgb(stops[i + 1]);
+  const mix = a.map((v, k) => Math.round(v + (b[k] - v) * (x - i)));
+  return '#' + mix.map((v) => v.toString(16).padStart(2, '0')).join('');
+}
+
+/** One <Text> per character, blended across the palette's gradient stops. */
+function Gradient({ text, bold = true }: { text: string; bold?: boolean }) {
+  const chars = [...text];
+  return (
+    <Text bold={bold}>
+      {chars.map((c, i) => (
+        <Text key={i} color={gradientAt(PALETTE.gradient, chars.length > 1 ? i / (chars.length - 1) : 0)}>
+          {c}
+        </Text>
+      ))}
+    </Text>
+  );
+}
 
 function useTerminalSize() {
   const { stdout } = useStdout();
@@ -23,10 +64,10 @@ function useTerminalSize() {
 
 // ── Header ───────────────────────────────────────────────────────────────────
 
-function KeyValue({ label, children }: { label: string; children: React.ReactNode }) {
+function KeyValue({ label, labelWidth = 16, children }: { label: string; labelWidth?: number; children: React.ReactNode }) {
   return (
     <Box>
-      <Box width={17} flexShrink={0}>
+      <Box width={labelWidth} flexShrink={0}>
         <Text dimColor>{label}</Text>
       </Box>
       <Box flexGrow={1}>{children}</Box>
@@ -41,15 +82,50 @@ function ContainerBadge({ status }: { status: DashboardData['containerStatus'] }
   return <Text color="red" bold>○ not found</Text>;
 }
 
+/** ● running · ▲ present but not running · ○ absent. */
+function StageDot({ label, state }: { label: string; state?: string }) {
+  const color = state === 'running' ? 'green' : state ? 'yellow' : 'red';
+  const glyph = state === 'running' ? '●' : state ? '▲' : '○';
+  return (
+    <Text>
+      <Text color={color}>{glyph}</Text>
+      <Text dimColor> {label}</Text>
+    </Text>
+  );
+}
+
+function certColor(days: number): string {
+  return days < 14 ? 'red' : days < 30 ? 'yellow' : 'green';
+}
+
+function CertBadge({ health }: { health?: Health }) {
+  if (health?.certDays === undefined) return <Text dimColor>unknown</Text>;
+  return (
+    <Text color={certColor(health.certDays)} bold>
+      {health.certDays}d left
+    </Text>
+  );
+}
+
+function PathBadges({ health }: { health?: Health }) {
+  return (
+    <Text wrap="truncate">
+      <StageDot label="bridge" state={health?.bridge} />
+      <Text> </Text>
+      <StageDot label="tunnel" state={health?.tunnel} />
+      <Text> </Text>
+      <StageDot label="relay" state={health?.relay ? 'running' : undefined} />
+    </Text>
+  );
+}
+
 function Header({ dashboard, refreshing }: { dashboard: DashboardData; refreshing: boolean }) {
   const config = getAppConfig();
   const time = dashboard.refreshedAt?.toLocaleTimeString([], { hour12: false });
   return (
-    <Box borderStyle="round" borderColor="cyan" flexDirection="column" paddingX={1} flexGrow={1}>
+    <Box borderStyle="round" borderColor={PALETTE.header} flexDirection="column" paddingX={1} flexGrow={1}>
       <Box justifyContent="space-between">
-        <Text bold color="cyan">
-          Mail Server Manager
-        </Text>
+        <Gradient text="✉  Mail Server Manager" />
         {refreshing ? (
           <Text color="yellow">
             <Spinner type="dots" /> refreshing
@@ -59,30 +135,38 @@ function Header({ dashboard, refreshing }: { dashboard: DashboardData; refreshin
         )}
       </Box>
       <Box>
-        <Box flexDirection="column" width="50%">
+        <Box flexDirection="column" flexGrow={1} flexShrink={1}>
           <KeyValue label="Primary domain">
-            <Text bold>{config.primaryDomain}</Text>
+            <Text bold wrap="truncate-middle">{config.primaryDomain}</Text>
           </KeyValue>
           <KeyValue label="MX host">
-            <Text bold>{config.mxHost}</Text>
+            <Text bold wrap="truncate-middle">{config.mxHost}</Text>
           </KeyValue>
           <KeyValue label="DKIM selector">
             <Text bold>{config.dkimSelector}</Text>
           </KeyValue>
+          <KeyValue label="TLS certificate">
+            <CertBadge health={dashboard.health} />
+          </KeyValue>
         </Box>
-        <Box flexDirection="column" width="50%">
-          <KeyValue label="Container">
+        <Box flexDirection="column" flexShrink={0} marginLeft={2}>
+          <KeyValue label="Container" labelWidth={12}>
             <ContainerBadge status={dashboard.containerStatus} />
           </KeyValue>
-          <KeyValue label="Cloudflare">
+          <KeyValue label="Cloudflare" labelWidth={12}>
             {dashboard.cloudflareConfigured ? (
               <Text color="green">● configured</Text>
             ) : (
               <Text dimColor>○ not set (CF_API_TOKEN)</Text>
             )}
           </KeyValue>
-          <KeyValue label="Domains">
-            <Text bold>{dashboard.domains.length}</Text>
+          <KeyValue label="Domains" labelWidth={12}>
+            <Text bold color={PALETTE.accent}>
+              {dashboard.domains.length}
+            </Text>
+          </KeyValue>
+          <KeyValue label="Mail path" labelWidth={12}>
+            <PathBadges health={dashboard.health} />
           </KeyValue>
         </Box>
       </Box>
@@ -126,7 +210,7 @@ const COLUMNS: Column[] = [
     key: 'type',
     header: 'TYPE',
     width: 9,
-    render: (d) => (d.isPrimary ? <Text color="blue">primary</Text> : <Text dimColor>virtual</Text>),
+    render: (d) => (d.isPrimary ? <Text color={PALETTE.accent}>primary</Text> : <Text dimColor>virtual</Text>),
   },
   { key: 'mbx', header: 'MBX', width: 5, render: (d) => <Text>{d.mailboxCount}</Text> },
   {
@@ -167,16 +251,16 @@ function DomainTable({
   const domainWidth = Math.max(8, Math.min(wanted, inner - fixed));
 
   return (
-    <Box borderStyle="round" borderColor="gray" flexDirection="column" paddingX={1}>
+    <Box borderStyle="round" borderColor={PALETTE.table} flexDirection="column" paddingX={1}>
       <Box>
         <Cell width={domainWidth}>
-          <Text bold color="cyan" wrap="truncate">
+          <Text bold color={PALETTE.table} wrap="truncate">
             DOMAIN
           </Text>
         </Cell>
         {cols.map((c) => (
           <Cell key={c.key} width={c.width}>
-            <Text bold color="cyan" wrap="truncate">
+            <Text bold color={PALETTE.table} wrap="truncate">
               {c.header}
             </Text>
           </Cell>
@@ -243,16 +327,16 @@ function tailThatFits(lines: OutputLine[], rows: number, width: number) {
 function OutputLineView({ line }: { line: OutputLine }) {
   if (line.kind === 'heading') {
     return (
-      <Text bold color="cyan">
+      <Text bold color={PALETTE.output}>
         {line.text}
       </Text>
     );
   }
-  if (line.kind === 'raw') return <Text>{line.text}</Text>;
+  if (line.kind === 'raw') return <Text color={line.color}>{line.text}</Text>;
   return (
     <Text>
       <Text color={COLOR[line.kind]}>{PREFIX[line.kind]}</Text>
-      <Text color={line.kind === 'error' ? 'red' : undefined}>{line.text}</Text>
+      <Text color={line.color ?? (line.kind === 'error' ? 'red' : undefined)}>{line.text}</Text>
     </Text>
   );
 }
@@ -275,14 +359,14 @@ function OutputPanel({
   return (
     <Box
       borderStyle="round"
-      borderColor="gray"
+      borderColor={PALETTE.output}
       flexDirection="column"
       paddingX={1}
       width={width}
       height={height}
       flexShrink={0}
     >
-      <Text bold color="cyan" wrap="truncate">
+      <Text bold color={PALETTE.output} wrap="truncate">
         {title ?? 'Output'}
       </Text>
       {!title && <Text dimColor>Results of actions appear here.</Text>}
@@ -300,21 +384,29 @@ function SelectPrompt({ prompt, limit }: { prompt: Extract<Prompt, { kind: 'sele
   useInput((_input, key) => {
     if (key.escape) prompt.resolve(CANCEL);
   });
-  const items = prompt.options.map((o, i) => ({ key: String(i), label: o.label, value: i }));
+  // The item component only receives `label`, so it carries the option index.
+  const items = prompt.options.map((o, i) => ({ key: String(i), label: String(i), value: i }));
   return (
     <Box flexDirection="column">
-      <Text bold wrap="truncate">
+      <Text bold color={PALETTE.menu} wrap="truncate">
         {prompt.message}
       </Text>
       <SelectInput
         items={items}
         limit={limit}
         onSelect={(item) => prompt.resolve(prompt.options[item.value].value)}
-        itemComponent={({ isSelected, label }) => (
-          <Text color={isSelected ? 'cyan' : undefined} wrap="truncate">
-            {label}
-          </Text>
-        )}
+        itemComponent={({ isSelected, label }) => {
+          const o = prompt.options[Number(label)];
+          return (
+            <Text wrap="truncate">
+              {o.icon && <Text color={o.color ?? PALETTE.menu}>{o.icon} </Text>}
+              <Text bold={isSelected} color={isSelected ? PALETTE.menu : undefined}>
+                {o.label}
+              </Text>
+              {o.hint && <Text dimColor> {o.hint}</Text>}
+            </Text>
+          );
+        }}
       />
     </Box>
   );
@@ -330,7 +422,7 @@ function TextPrompt({ prompt }: { prompt: Extract<Prompt, { kind: 'text' }> }) {
     <Box flexDirection="column">
       <Text bold>{prompt.message}</Text>
       <Box>
-        <Text color="cyan">› </Text>
+        <Text color={PALETTE.menu}>› </Text>
         <TextInput
           value={value}
           placeholder={prompt.placeholder}
@@ -366,11 +458,11 @@ function ConfirmPrompt({ prompt }: { prompt: Extract<Prompt, { kind: 'confirm' }
         {prompt.message}
       </Text>
       <Box marginTop={1}>
-        <Text inverse={yes} color={yes ? 'cyan' : undefined}>
+        <Text inverse={yes} color={yes ? PALETTE.menu : undefined}>
           {' Yes '}
         </Text>
         <Text> </Text>
-        <Text inverse={!yes} color={!yes ? 'cyan' : undefined}>
+        <Text inverse={!yes} color={!yes ? PALETTE.menu : undefined}>
           {' No '}
         </Text>
       </Box>
@@ -396,7 +488,7 @@ function PromptPanel({
   return (
     <Box
       borderStyle="round"
-      borderColor={prompt?.kind === 'confirm' && prompt.danger ? 'red' : 'cyan'}
+      borderColor={prompt?.kind === 'confirm' && prompt.danger ? 'red' : PALETTE.menu}
       flexDirection="column"
       paddingX={1}
       width={width}
@@ -429,15 +521,18 @@ const HINTS: Record<Prompt['kind'], string> = {
 function CompactHeader({ dashboard, refreshing }: { dashboard: DashboardData; refreshing: boolean }) {
   const config = getAppConfig();
   return (
-    <Box borderStyle="round" borderColor="cyan" paddingX={1} justifyContent="space-between">
+    <Box borderStyle="round" borderColor={PALETTE.header} paddingX={1} justifyContent="space-between">
       <Text wrap="truncate">
-        <Text bold color="cyan">
-          {config.primaryDomain}
-        </Text>
-        <Text dimColor> · container </Text>
+        <Gradient text={config.primaryDomain} />
+        <Text dimColor> · </Text>
         <ContainerBadge status={dashboard.containerStatus} />
-        <Text dimColor> · cloudflare </Text>
+        <Text dimColor> · cf </Text>
         {dashboard.cloudflareConfigured ? <Text color="green">●</Text> : <Text dimColor>○</Text>}
+        <Text dimColor> · </Text>
+        <PathBadges health={dashboard.health} />
+        {dashboard.health?.certDays !== undefined && (
+          <Text color={certColor(dashboard.health.certDays)}> · tls {dashboard.health.certDays}d</Text>
+        )}
       </Text>
       {refreshing ? (
         <Text color="yellow">
@@ -515,8 +610,8 @@ function ZonesColumn({ dashboard, width }: { dashboard: DashboardData; width: nu
   const items = zoneItems(dashboard);
   const shown = items.slice(0, MAX_ZONES_BESIDE_HEADER);
   return (
-    <Box borderStyle="round" borderColor="cyan" flexDirection="column" paddingX={1} width={width} flexShrink={0}>
-      <Text bold color="cyan" wrap="truncate">
+    <Box borderStyle="round" borderColor={PALETTE.zones} flexDirection="column" paddingX={1} width={width} flexShrink={0}>
+      <Text bold color={PALETTE.zones} wrap="truncate">
         {zonesTitle(dashboard)}
       </Text>
       {message ? (
@@ -584,12 +679,12 @@ function packZoneChips(dashboard: DashboardData, width: number, maxLines: number
 /** Zones listed inline and wrapped; used under the header on narrow or short terminals. */
 function ZonesInline({ lines }: { lines: Chip[][] }) {
   return (
-    <Box borderStyle="round" borderColor="cyan" flexDirection="column" paddingX={1}>
+    <Box borderStyle="round" borderColor={PALETTE.zones} flexDirection="column" paddingX={1}>
       {lines.map((line, i) => (
         <Box key={i} gap={CHIP_GAP}>
           {line.map((chip, j) =>
             chip.kind === 'title' ? (
-              <Text key={j} bold color="cyan" wrap="truncate">
+              <Text key={j} bold color={PALETTE.zones} wrap="truncate">
                 {chip.text}
               </Text>
             ) : chip.kind === 'message' || chip.kind === 'more' ? (
@@ -612,7 +707,9 @@ const SIDE_BY_SIDE_MIN_COLUMNS = 70;
 /** Output rows (inside the border) kept visible when panels are stacked. */
 const MIN_STACKED_OUTPUT_ROWS = 6;
 const COMPACT_HEADER_MAX_ROWS = 32;
-const ZONES_BESIDE_HEADER_MIN_COLUMNS = 100;
+/** Title plus four key/value rows in the full header. */
+const HEADER_CONTENT_ROWS = 5;
+const ZONES_BESIDE_HEADER_MIN_COLUMNS = 110;
 
 export function App() {
   const state = useSyncExternalStore(ui.subscribe, ui.getState);
@@ -626,8 +723,8 @@ export function App() {
   // Short terminals cap the wrapped list so the menu and output keep their room.
   const zoneLines = zonesBeside ? [] : packZoneChips(dashboard, columns - 4, compact ? 2 : 4);
   const headerRows = zonesBeside
-    ? 2 + Math.max(4, zonesColumnRows(dashboard))
-    : (compact ? 3 : 6) + 2 + zoneLines.length;
+    ? 2 + Math.max(HEADER_CONTENT_ROWS, zonesColumnRows(dashboard))
+    : (compact ? 3 : 2 + HEADER_CONTENT_ROWS) + 2 + zoneLines.length;
   const tableRows = 3 + Math.max(1, dashboard.domains.length);
   // Header, table, footer (1) and one spare row so the frame never fills the terminal.
   const body = Math.max(8, rows - headerRows - tableRows - 1 - 1);
@@ -672,7 +769,12 @@ export function App() {
           {' '}
           {hint}
         </Text>
-        {columns >= 80 && <Text dimColor>● ok ○ miss ▲ diff ? unknown </Text>}
+        {columns >= 80 && (
+          <Text>
+            <Text color="green">● ok</Text> <Text color="red">○ miss</Text> <Text color="yellow">▲ diff</Text>{' '}
+            <Text dimColor>? unknown </Text>
+          </Text>
+        )}
       </Box>
     </Box>
   );

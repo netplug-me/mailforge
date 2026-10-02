@@ -118,9 +118,11 @@ export class DockerService {
    * Non-blocking variants for the TUI, where a spawnSync would freeze rendering
    * (compose up --force-recreate can take 30s+).
    */
-  public runAsync(args: string[]): Promise<ExecResult> {
+  public runAsync(args: string[], input?: string): Promise<ExecResult> {
     return new Promise((resolve) => {
       const child = spawn('docker', args, { cwd: this.projectDir });
+      if (input !== undefined) child.stdin.end(input);
+      else child.stdin.end();
       let stdout = '';
       let stderr = '';
       child.stdout.on('data', (d) => (stdout += d));
@@ -144,6 +146,22 @@ export class DockerService {
 
   public getLogsAsync(tail = 100): Promise<ExecResult> {
     return this.runAsync([...this.composeArgs(), 'logs', `--tail=${tail}`, 'mailserver']);
+  }
+
+  /** Non-blocking `docker exec` in the mailserver; `input` is piped to stdin. */
+  public execAsync(args: string[], input?: string): Promise<ExecResult> {
+    return this.runAsync(['exec', ...(input !== undefined ? ['-i'] : []), 'mailserver', ...args], input);
+  }
+
+  /** State of the compose service's container (`running`, `exited`, …) or undefined when absent. */
+  public async serviceState(service: string): Promise<string | undefined> {
+    const res = await this.runAsync([
+      'ps', '-a',
+      '--filter', `label=com.docker.compose.service=${service}`,
+      '--filter', `label=com.docker.compose.project.working_dir=${this.projectDir}`,
+      '--format', '{{.State}}',
+    ]);
+    return res.success ? res.stdout.trim().split('\n')[0] || undefined : undefined;
   }
 
   public exec(args: string[]): ExecResult {
