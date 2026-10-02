@@ -15,13 +15,13 @@ import {
 } from './actions.js';
 
 const ACTIONS = {
+  toolbox: { label: 'Toolbox ▸', icon: '⚒', color: '#fbbf24', run: actionToolbox },
   add_domain: { label: 'Add domain / sub-domain', icon: '✚', color: '#4ade80', run: actionAddDomain },
   remove_domain: { label: 'Remove domain', icon: '✖', color: '#f87171', run: actionRemoveDomain },
   mailboxes: { label: 'Mailboxes & aliases', icon: '✉', color: '#f472b6', run: actionManageMailboxes },
   dkim: { label: 'DKIM keys', icon: '⚿', color: '#a78bfa', run: actionViewDkim },
   dns: { label: 'DNS health & sync', icon: '☁', color: '#818cf8', run: actionDnsOperations },
   docker: { label: 'Mail server container', icon: '▣', color: '#38bdf8', run: actionDockerControl },
-  toolbox: { label: 'Toolbox ▸', icon: '⚒', color: '#fbbf24', run: actionToolbox },
 } as const;
 
 type ActionKey = keyof typeof ACTIONS;

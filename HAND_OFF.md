@@ -116,6 +116,10 @@ Permissions in use: Zone DNS Edit, Zone Email Routing Rules Edit, Account Worker
    2. Networks → Tunnels → `switchboard-llc-inbound` → Private networks: route the Docker subnet of this compose project
       (`docker network inspect cf-mail-tui_default`) through the tunnel. Remove that CIDR from the Split Tunnels *exclude* list
       (or switch to "include" mode) so WARP sends it through.
+   2b. **Pin the addresses first.** WARP routes a fixed CIDR and clients point at a fixed IP, but `compose down` (a TUI menu item)
+      removes the default network and the next `up` may pick a different subnet. In `compose.yaml` add a `networks:` block with
+      `ipam.config.subnet` (e.g. `172.28.0.0/24`) and give `mailserver` a fixed `ipv4_address` (e.g. `172.28.0.10`);
+      then route exactly that CIDR in step 2.
    3. Install WARP on the phone/laptop, enrol, then point the mail client at the mailserver's container IP
       (or add a Local DNS / hosts entry `mail.switchboard.llc` → container IP) on ports **993** (IMAPS) and **587/465** (submission).
    Constraints:
@@ -126,6 +130,8 @@ Permissions in use: Zone DNS Edit, Zone Email Routing Rules Edit, Account Worker
      then re-run the signed POST test in §7.
    - **fail2ban:** remote clients all appear as cloudflared's container IP, so a few failed logins would ban everyone.
      Add that IP to `fail2ban-jail.cf` `ignoreip` (or leave `ENABLE_FAIL2BAN` off for those ports).
+3b. **TUI Toolbox** (`./mailctl` ▸ Toolbox): mail queue, delivery log, mailbox usage, connected clients, fail2ban, TLS expiry,
+   mail-path check, Postmark stats, send-test-email. The header shows cert days left and bridge/tunnel/relay state.
 4. **More mailboxes and aliases:** use the TUI (`./mailctl`) or `docker exec mailserver setup email add …`.
    Mailboxes now: `postmaster@switchboard.llc`, `lham@switchboard.llc`, `law@ham.switchboard.llc`.
 5. **DKIM for outbound** is handled by Postmark (verified domain), so DMS's own DKIM keys are not needed for relayed mail.

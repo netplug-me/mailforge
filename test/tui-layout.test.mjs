@@ -29,9 +29,9 @@ ui.success('DKIM key generated');
 ui.raw('v=DKIM1; k=rsa; p=' + 'A'.repeat(300));
 for (let i = 0; i < 60; i++) ui.line(`log line ${i}`);
 // Same size as the real main menu.
-const MENU = ['Refresh status & DNS', 'Add domain / sub-domain', 'Remove domain', 'Mailboxes & aliases', 'DKIM keys',
-  'DNS health & sync', 'Mail server container', 'Toolbox ▸', 'Exit'];
-ui.select('What do you want to do?', MENU.map((l) => ({ value: l, label: l })));
+const MENU = ['⟳ Refresh status & DNS', '⚒ Toolbox ▸', '✚ Add domain / sub-domain', '✖ Remove domain', '✉ Mailboxes & aliases',
+  '⚿ DKIM keys', '☁ DNS health & sync', '▣ Mail server container', '⏻ Exit'];
+ui.select('What do you want to do?', MENU.map((l) => { const [icon, ...rest] = l.split(' '); return { value: l, icon, label: rest.join(' ') }; }));
 const MIN_VISIBLE_OUTPUT = 5;
 
 let failures = 0;

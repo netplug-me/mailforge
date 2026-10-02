@@ -514,7 +514,9 @@ export async function toolQuotas(): Promise<void> {
   for (const r of rows) {
     const frac = r.limitKb ? r.usedKb / r.limitKb : 0;
     const color = frac > 0.9 ? BAD : frac > 0.7 ? WARN : OK;
-    const meter = r.limitKb ? `${bar(frac, 14)} ${Math.round(frac * 100)}%` : `${'░'.repeat(14)} no limit`;
+    const meter = r.limitKb
+      ? `${bar(frac, 14)} ${(Math.round(frac * 100) + '%').padEnd(8)}`
+      : `${'░'.repeat(14)} ${'no limit'.padEnd(8)}`;
     ui.colored(
       `${r.user.padEnd(width)}  ${meter}  ${formatKb(r.usedKb)}${r.limitKb ? ' / ' + formatKb(r.limitKb) : ''}  ${r.messages} msg`,
       r.limitKb ? color : '#94a3b8'
@@ -548,7 +550,7 @@ export async function toolFail2ban(): Promise<void> {
       return;
     }
     const choice = await ui.select('Unban an address', [
-      ...bans.map((b) => ({ value: b.ip, label: b.ip, hint: b.jail, icon: '⛔', color: BAD })),
+      ...bans.map((b) => ({ value: b.ip, label: b.ip, hint: b.jail, icon: '⊘', color: BAD })),
       BACK,
     ]);
     if (isCancel(choice) || choice === 'back') return;
@@ -635,12 +637,12 @@ export async function actionToolbox(): Promise<void> {
   while (true) {
     const choice = await ui.select('Toolbox', [
       { value: 'queue', label: 'Mail queue', icon: '▤', color: '#fbbf24', hint: 'retry / purge' },
-      { value: 'log', label: 'Delivery log', icon: '≋', color: '#38bdf8', hint: 'sent / deferred / bounced' },
+      { value: 'log', label: 'Delivery log', icon: '≡', color: '#38bdf8', hint: 'sent/bounced' },
       { value: 'quotas', label: 'Mailbox usage', icon: '▰', color: '#4ade80', hint: 'quota bars' },
       { value: 'clients', label: 'Connected clients', icon: '◉', color: '#2dd4bf' },
-      { value: 'f2b', label: 'fail2ban', icon: '⛔', color: '#f87171', hint: 'bans & unban' },
+      { value: 'f2b', label: 'fail2ban', icon: '⊘', color: '#f87171', hint: 'bans' },
       { value: 'cert', label: 'TLS certificate', icon: '⚿', color: '#a78bfa', hint: 'expiry' },
-      { value: 'path', label: 'Mail path', icon: '⇄', color: '#818cf8', hint: 'inbound & outbound' },
+      { value: 'path', label: 'Mail path', icon: '⇄', color: '#818cf8', hint: 'in & out' },
       { value: 'postmark', label: 'Postmark stats', icon: '✉', color: '#f472b6', hint: 'bounces' },
       { value: 'test', label: 'Send test email', icon: '➤', color: '#4ade80' },
       BACK,
