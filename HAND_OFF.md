@@ -103,14 +103,15 @@ Permissions in use: Zone DNS Edit, Zone Email Routing Rules Edit, Account Worker
 
 ## 8. Open items / next steps
 
-1. **Send a real email** from Gmail or a phone to `postmaster@switchboard.llc`. That is the only hop not exercised yet
-   (Email Routing → Worker). Check it with `docker compose ... logs inbound-bridge` and the Worker logs in the dashboard.
+1. **Inbound from the public internet:** DONE (2026-10-01). A real Gmail message to `postmaster@` went Email Routing → Worker →
+   bridge → DMS and landed in the INBOX (amavis `Passed CLEAN`).
 2. **Outbound mail:** DONE via Postmark (`outbound/compose.outbound.yaml`, token in `.env` as `POSTMARK_SERVER_TOKEN`).
-   Remaining: apply the SPF change (`python3 inbound/setup_cloudflare.py`, adds `include:spf.mtasv.net`; the live
-   record was still `v=spf1 mx ~all`) and check SPF/DKIM/DMARC in a received message's headers.
+   SPF now `v=spf1 include:_spf.mx.cloudflare.net include:spf.mtasv.net mx ~all` (applied 2026-10-01 with
+   `inbound/setup_cloudflare.py`). Remaining: confirm SPF/DKIM/DMARC pass in a received message's headers, then
+   consider DMARC `p=quarantine` after a week or two of clean reports.
 3. **Remote client access:** IMAP 993 and submission 587 are only reachable on the LAN. Plan: Cloudflare Tunnel + WARP.
 4. **More mailboxes and aliases:** use the TUI (`./mailctl`) or `docker exec mailserver setup email add …`.
-   Only `postmaster@` exists now.
+   Mailboxes now: `postmaster@switchboard.llc`, `lham@switchboard.llc`, `law@ham.switchboard.llc`.
 5. **DKIM for outbound** is handled by Postmark (verified domain), so DMS's own DKIM keys are not needed for relayed mail.
 6. **Container warnings:** docker-mailserver warns that running Rspamd alongside Amavis/SpamAssassin/OpenDKIM/OpenDMARC
    is discouraged. It isn't a problem, but consider slimming the enabled services later.
