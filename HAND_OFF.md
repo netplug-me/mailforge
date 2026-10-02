@@ -80,8 +80,7 @@ Permissions in use: Zone DNS Edit, Zone Email Routing Rules Edit, Account Worker
    - `init` warns when the cert is missing, and says "cannot verify" instead when `/etc/letsencrypt` is root-only.
 3. **TUI** (`src/tui/app.ts`, `dashboard.ts`): action results no longer vanish. There's a "Press Enter to return to the menu"
    pause after each action, and the redraw no longer uses `console.clear()`, which wiped scrollback.
-4. Originals of the edited files were backed up under the Claude scratchpad. **This directory is not a git repo,
-   so these edits are unversioned.** Run `git init` here. `.gitignore` already excludes `.env` and `docker-data/`.
+4. This directory is now a git repo; the edits above are committed. `.gitignore` excludes `.env`, `docker-data/` and `postmark.api.key.*`.
 
 ## 6. Certificate
 
@@ -107,11 +106,13 @@ Permissions in use: Zone DNS Edit, Zone Email Routing Rules Edit, Account Worker
    bridge → DMS and landed in the INBOX (amavis `Passed CLEAN`).
 2. **Outbound mail:** DONE via Postmark (`outbound/compose.outbound.yaml`, token in `.env` as `POSTMARK_SERVER_TOKEN`).
    SPF now `v=spf1 include:_spf.mx.cloudflare.net include:spf.mtasv.net mx ~all` (applied 2026-10-01 with
-   `inbound/setup_cloudflare.py`). Remaining: confirm SPF/DKIM/DMARC pass in a received message's headers, then
-   consider DMARC `p=quarantine` after a week or two of clean reports.
+   `inbound/setup_cloudflare.py`). DNS checked 2026-10-01: SPF record correct, `pm-bounces` CNAME → `pm.mtasv.net`, DMARC `p=none; aspf=r`.
+   Remaining: open the Postmark-relayed test in Gmail (Show original) and confirm SPF/DKIM/DMARC all `PASS`
+   (the messages in the mailboxes are inbound from Gmail, so they don't prove this), then consider DMARC
+   `p=quarantine` after a week or two of clean reports.
 3. **Remote client access:** IMAP 993 and submission 587 are only reachable on the LAN. Plan: Cloudflare Tunnel + WARP.
 4. **More mailboxes and aliases:** use the TUI (`./mailctl`) or `docker exec mailserver setup email add …`.
    Mailboxes now: `postmaster@switchboard.llc`, `lham@switchboard.llc`, `law@ham.switchboard.llc`.
 5. **DKIM for outbound** is handled by Postmark (verified domain), so DMS's own DKIM keys are not needed for relayed mail.
-6. **Container warnings:** docker-mailserver warns that running Rspamd alongside Amavis/SpamAssassin/OpenDKIM/OpenDMARC
+6. **Container warnings (still present 2026-10-01; left alone because the server works):** docker-mailserver warns that running Rspamd alongside Amavis/SpamAssassin/OpenDKIM/OpenDMARC
    is discouraged. It isn't a problem, but consider slimming the enabled services later.
