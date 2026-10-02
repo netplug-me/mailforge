@@ -12,6 +12,8 @@ export interface AppConfig {
   cloudflareApiToken?: string;
   postmasterAddress: string;
   sslType: string;
+  /** Cloudflare zones the TUI should not list (TUI_HIDE_ZONES, comma separated). Display only. */
+  hiddenZones: string[];
 }
 
 export interface DnsCheckItem {

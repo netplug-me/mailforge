@@ -105,6 +105,8 @@ export async function actionAddDomain(dm: DomainManager): Promise<void> {
     ui.line('Registered in POSTFIX_VIRTUAL_DOMAINS');
     ui.line(`DKIM key generated: ${res.dkimGenerated ? 'yes' : 'no'}`);
     if (res.accountsAdded.length > 0) ui.line(`Accounts: ${res.accountsAdded.join(', ')}`);
+    if (res.aliasesAdded.length > 0) ui.line(`Aliases: ${res.aliasesAdded.join(', ')}`);
+    for (const e of res.errors) ui.warn(e);
     if (res.dnsSyncResult) {
       ui.line(
         `Cloudflare zone ${res.dnsSyncResult.zone.name}: ${res.dnsSyncResult.results.length} records synchronized`
@@ -155,7 +157,9 @@ export async function actionRemoveDomain(dm: DomainManager): Promise<void> {
 
   try {
     const res = await ui.task(`Removing domain ${domain}…`, () => dm.removeDomain({ domain, deleteData, deleteDns }));
-    ui.success(`Domain ${domain} removed`);
+    if (res.errors.length > 0) ui.warn(`Domain ${domain} removed with problems`);
+    else ui.success(`Domain ${domain} removed`);
+    for (const e of res.errors) ui.warn(e);
     ui.line(`Accounts purged: ${res.accountsDeleted.length}`);
     if (res.dataDeleted) ui.line('Mail data: deleted');
     if (res.dnsDeletedResult) ui.line(`Cloudflare records deleted: ${res.dnsDeletedResult.deletedCount}`);

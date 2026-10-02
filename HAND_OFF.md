@@ -1,7 +1,7 @@
 # cf-mail-tui / switchboard.llc mail — Hand-off
 
-**Date:** September 23, 2026
-**Status:** Inbound mail for `switchboard.llc` is live and has been tested from the public internet into the mailbox.
+**Date:** September 23, 2026 (updated October 2, 2026: `rcpsolutions.net` moved onto this stack, see §10)
+**Status:** Inbound mail for `switchboard.llc` and `rcpsolutions.net` is live and has been tested from the public internet into the mailbox.
 Outbound mail is relayed through Postmark (see `outbound/README.md`); tested to Yahoo and Gmail.
 **Host:** this workstation (Docker). The home IP is not published anywhere and port 25 does not need to be reachable.
 
@@ -103,7 +103,27 @@ they are already Email Routing / Postmark-managed (so it can't re-add the mail-h
 | Worker code run locally against the bridge | signatures match, reject/throw paths correct |
 | Public MX (1.1.1.1, 8.8.8.8) | Cloudflare `route1-3.mx.cloudflare.net` |
 
-## 8. Open items / next steps
+## 8. Code review — 2026-10-02
+
+Full read-through of `src/`, the inbound/outbound pipelines, and the tests (typecheck clean, all three test suites pass, tree clean).
+
+**What holds up:** the inbound pipeline (HMAC over `ts\nfrom\nto\nsha256(body)`, `timingSafeEqual`, 300 s skew, 26 MiB cap, `ADDR` regex blocking CRLF injection into SMTP commands, dot-stuffing, Worker 422→`setReject` / else throw so mail is never silently accepted-and-dropped); the TUI (single-prompt invariant, fixed-height panels, Esc-as-back); the TXT upsert fix with regression tests; the conditional compose overrides that keep a plain `compose up` from dropping `PERMIT_DOCKER` or the Postmark relay.
+
+**Issues found (in priority order):**
+
+1. **FIXED 2026-10-02 — `domain-manager.ts` reports success on failure.** `addDomain` never checks the `ExecResult` of `addAccount`/`setQuota`/`addAlias` — the TUI prints `Accounts: …` even when `setup email add` failed; DKIM generation errors are swallowed (`catch {}`). `removeDomain` swallows `delAccount` errors.
+2. **FIXED 2026-10-02 (see §10) — `removeDomain` takes the whole stack down** (`composeDown` → `composeUp`): inbound bounces for the window, and a failed `composeUp` leaves the server stopped with no rollback. `addDomain` runs a sync `composeUp(true)` (30 s+ force-recreate) inside the TUI, freezing rendering; the async variants exist but aren't used on this path. Both also race DMS init (`compose up -d` returns before the container is ready, so `setup email add` right after is flaky).
+3. **The delete side is careless where the sync side is careful.** `syncDomainDns` skips CF Email Routing MX and preserves managed SPF, but `deleteDomainDns` deletes *all* MX records on the domain (including CF's) and *any* TXT containing `v=spf1` (including the Postmark-included one). It also lists only the first 100 zone records (no pagination), so on a busy zone deletion silently misses records.
+4. **`any` leaks**: `syncDns(): Promise<any>`, `dnsSyncResult?: any`, `postmark(): Promise<any>`, `parsePostmarkStats(json: any)`, and `err: any` throughout.
+5. **`OpsService` builds `new DockerService()` with no projectDir** → cwd-dependent; `serviceState` filters on `com.docker.compose.project.working_dir`, so the health header silently reports "not deployed" when run from anywhere but the project root.
+6. **Config side effects**: `composeArgs()` calls `getAppConfig()` purely to load `.env` into `process.env`; `dotenv.config({ override: true })` lets the project `.env` override real environment variables.
+7. **README drift**: architecture section lists `app.ts` (it's `app.tsx`), omits `ops.ts`/`ui.ts`/`view.tsx`, the Toolbox, and the inbound/outbound pipeline; the token-permission note contradicts the account token in §3.
+
+**Minor:** mutable image tags (`docker-mailserver:latest`, `cloudflared:latest` — DMS majors have breaking config changes); `checkSpf`/`checkDmarc` don't strip surrounding quotes, so a quoted record reads "missing"; `getZoneForDomain` fallback lists only 50 zones while `listZones()` paginates; `cert()` hardcodes the letsencrypt path regardless of `SSL_TYPE`; stray `postmark.api.key.curl.tzt` in the repo root.
+
+**Suggested order of attack:** (1) and (2) are done; remaining: (3) align `deleteDomainDns` with the sync side (skip CF routing MX, delete only the managed SPF tag, paginate `listRecords`); (4) typing pass + README refresh.
+
+## 9. Open items / next steps
 
 1. **Inbound from the public internet:** DONE (2026-10-01). A real Gmail message to `postmaster@` went Email Routing → Worker →
    bridge → DMS and landed in the INBOX (amavis `Passed CLEAN`).
@@ -140,3 +160,46 @@ they are already Email Routing / Postmark-managed (so it can't re-add the mail-h
 5. **DKIM for outbound** is handled by Postmark (verified domain), so DMS's own DKIM keys are not needed for relayed mail.
 6. **Container warnings (still present 2026-10-01; left alone because the server works):** docker-mailserver warns that running Rspamd alongside Amavis/SpamAssassin/OpenDKIM/OpenDMARC
    is discouraged. It isn't a problem, but consider slimming the enabled services later.
+7. **Code-review fixes:** see §8 (2026-10-02) — items 1–2 are fixed; items 3–7 remain (next: `deleteDomainDns` alignment with the sync side).
+8. **`rcpsolutions.net` follow-ups:** see §10 (Postmark sender verification, WorkMail org retirement, `scarletmoon.org` mail, `whitetower.us`).
+
+## 10. Domain migration and TUI domain changes — 2026-10-02
+
+**TUI changes**
+- **Zones box hide-list:** `TUI_HIDE_ZONES` in `.env` (comma separated; documented in `.env.example`) hides Cloudflare zones from the TUI.
+  Display only: nothing is changed in Cloudflare. Currently `netplug.me,elite-athelete.com` (both still active zones, DNS untouched).
+  Implemented in `config.ts` (`hiddenZones`) and filtered in `tui/dashboard.ts`.
+- **Mail domains now registered** (`POSTFIX_VIRTUAL_DOMAINS`): `ham.switchboard.llc`, `rcpsolutions.net` (3 mailboxes), `scarletmoon.org` (0 mailboxes).
+  Added with `mailctl add <domain>` and *without* `--dns`, so Cloudflare DNS and Email Routing records were not touched.
+- **`POSTFIX_VIRTUAL_DOMAINS` is TUI-only.** docker-mailserver never reads it; Postfix's `virtual_mailbox_domains` is `/etc/postfix/vhost`,
+  generated from the mailboxes/aliases in DMS. A domain only accepts mail once it has a mailbox or alias.
+- **`domain-manager.ts`:** `addDomain`/`removeDomain` no longer recreate or take down the container. They return an `errors: string[]`
+  (failed mailbox/alias/quota/DKIM/delete operations; existing mailboxes are skipped), shown by the TUI and CLI (`mailctl` exits non-zero).
+
+**rcpsolutions.net moved from AWS WorkMail onto this stack**
+- **DNS:** was Wix-hosted nameservers at the AWS Route 53 Domains registrar. Now a Cloudflare zone (active) with registrar nameservers
+  `rosa`/`santino.ns.cloudflare.com`. Registrar stays at AWS (DNS management only was moved). The Wix site is kept: apex A records
+  `185.230.63.171/.186/.107` and `www` CNAME `cdn3.wixdns.net` (DNS-only, copied from what resolves publicly; Wix panel not inspected, so
+  other subdomains, if any, were not copied). Checked after cutover: apex 301, `www` 200.
+- **Inbound:** Cloudflare Email Routing enabled; catch-all → the existing Worker `switchboard-llc-inbound` (the Worker has no domain
+  filtering, so it serves any domain; unknown mailboxes are rejected by DMS). WorkMail MX removed. SPF
+  `v=spf1 include:spf.mtasv.net include:_spf.mx.cloudflare.net ~all`; DMARC `p=none`.
+  **Do not run `inbound/setup_cloudflare.py` for additional domains** — it creates a new tunnel/Worker and overwrites `CF_TUNNEL_TOKEN` in `.env`,
+  which would break `switchboard.llc` inbound. For a new domain: create the zone, enable Email Routing, and PUT a catch-all rule with
+  `actions: [{type: worker, value: [switchboard-llc-inbound]}]`.
+- **Mailboxes:** `payments@`, `lham@`, `no-reply@rcpsolutions.net`. Generated passwords are in `~/rcpsolutions-mail-credentials` (mode 600, not in the repo).
+- **Verified:** a Gmail message to `payments@rcpsolutions.net` was delivered into its INBOX (amavis `Passed CLEAN`, LMTP `Saved`);
+  `./mailctl list` shows MX valid.
+- **Other registrar change:** `scarletmoon.org` nameservers also moved to Cloudflare (zone active; no mail configured). `staffsetter.io` ignored.
+
+**Open follow-ups**
+1. **Postmark:** verify `rcpsolutions.net` as a sender domain (DKIM + return-path) in the Postmark dashboard; the server token in `.env` cannot do it.
+   Until then, nothing can send as `@rcpsolutions.net`. Then re-check SPF/DMARC.
+2. **WorkMail:** the `rcpsolutions` org (m-a3c2c9ee1ab444c2acd420f2d145fc80, us-east-1) is still alive. Keep it for several days because resolvers
+   that cached the old Wix nameservers can take up to ~48 h to see the change, and check its mailboxes for stragglers before deleting it (needs explicit approval).
+   The `patterson-ham` org (whitetower.us) is untouched.
+3. **`scarletmoon.org`:** needs mailboxes/aliases, Email Routing + catch-all (same recipe as above) before it can receive mail.
+4. **`whitetower.us` (do last):** add a Cloudflare zone, create mailboxes for `lawrence@` and `cortnee@` (plus `cindy`, `ebay`, `subs` if wanted), export/import
+   existing WorkMail mail, flip nameservers, enable Email Routing, then retire the WorkMail org.
+5. **Unused Route 53 hosted zones** (`rcpsolutions.net`, `scarletmoon.org`, `netplug.me`) can be deleted to save the monthly fee; nothing delegates to them any more.
+6. Local Claude Code permission rules in `.claude/settings.local.json` (git-ignored) are scoped to the rcpsolutions.net/scarletmoon.org work and can be removed.

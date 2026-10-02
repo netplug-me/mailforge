@@ -3,7 +3,7 @@ import path from 'node:path';
 import { getAppConfig } from '../config.js';
 import { EnvFileManager } from '../utils/env-file.js';
 import { isValidDomain, normalizeDomain } from '../utils/validator.js';
-import { DockerService } from './docker.js';
+import type { ExecResult } from './docker.js';
 import { DmsService } from './dms.js';
 import { DkimService } from './dkim.js';
 import { DnsCheckerService } from './dns.js';
@@ -13,7 +13,6 @@ import { AddDomainOptions, RemoveDomainOptions, DomainInfo, DomainDnsStatus } fr
 export class DomainManager {
   private config = getAppConfig();
   private envManager: EnvFileManager;
-  private docker: DockerService;
   private dms: DmsService;
   private dkim: DkimService;
   private dnsChecker: DnsCheckerService;
@@ -24,7 +23,6 @@ export class DomainManager {
       this.config = getAppConfig(projectDir);
     }
     this.envManager = new EnvFileManager(this.config.mailserverEnvPath);
-    this.docker = new DockerService(this.config.projectDir);
     this.dms = new DmsService(this.config.projectDir);
     this.dkim = new DkimService(this.config.projectDir);
     this.dnsChecker = new DnsCheckerService();
@@ -91,8 +89,10 @@ export class DomainManager {
     dnsSyncResult?: any;
     accountsAdded: string[];
     aliasesAdded: string[];
+    errors: string[];
   }> {
     const domain = normalizeDomain(options.domain);
+    const errors: string[] = [];
 
     if (!isValidDomain(domain)) {
       throw new Error(`Invalid domain format: ${domain}`);
@@ -107,22 +107,18 @@ export class DomainManager {
       throw new Error(`Domain ${domain} is already registered in mailserver.env`);
     }
 
-    // 1. Add to mailserver.env
+    // 1. Register the domain in mailserver.env. docker-mailserver never reads this variable
+    // (Postfix derives its domain list from the mailboxes/aliases), so no container
+    // recreate is needed; this list only tells the TUI which domains it manages.
     this.envManager.addVirtualDomain(domain);
 
-    // 2. Recreate docker container if docker is running
-    if (this.docker.isDockerAvailable()) {
-      this.docker.composeUp(true);
-    }
-
-    // 3. Generate DKIM key
+    // 2. Generate DKIM key
     let dkimGenerated = false;
     let dkimVal: string | undefined;
-    try {
-      const dkimRes = this.dms.generateDkim(domain, this.config.dkimSelector);
-      dkimGenerated = dkimRes.success;
-    } catch {
-      // ignore dkim error
+    const dkimRes = this.dms.generateDkim(domain, this.config.dkimSelector);
+    dkimGenerated = dkimRes.success;
+    if (!dkimRes.success) {
+      errors.push(`DKIM generation failed: ${(dkimRes.stderr || dkimRes.stdout).trim()}`);
     }
 
     const dkimInfo = this.dkim.getDkimInfo(domain, this.config.dkimSelector);
@@ -131,27 +127,37 @@ export class DomainManager {
       dkimVal = dkimInfo.dnsValue;
     }
 
-    // 4. Create users / forwarders / quotas
+    // 3. Create users / forwarders / quotas
     const accountsAdded: string[] = [];
     const aliasesAdded: string[] = [];
+    const existing = new Set(this.dms.listAccounts().map((a) => a.email.toLowerCase()));
+    const failure = (r: ExecResult) => (r.stderr || r.stdout).trim() || `exit code ${r.code}`;
 
     if (options.users && options.users.length > 0) {
       for (const u of options.users) {
         const email = `${u}@${domain}`;
         if (options.forward) {
-          this.dms.addAlias(email, options.forward);
-          aliasesAdded.push(`${email} -> ${options.forward}`);
+          const res = this.dms.addAlias(email, options.forward);
+          if (res.success) aliasesAdded.push(`${email} -> ${options.forward}`);
+          else errors.push(`alias ${email}: ${failure(res)}`);
+        } else if (existing.has(email.toLowerCase())) {
+          errors.push(`mailbox ${email} already exists; left unchanged`);
         } else {
-          this.dms.addAccount(email, options.password);
+          const res = this.dms.addAccount(email, options.password);
+          if (!res.success) {
+            errors.push(`mailbox ${email}: ${failure(res)}`);
+            continue;
+          }
           accountsAdded.push(email);
           if (options.quota) {
-            this.dms.setQuota(email, options.quota);
+            const q = this.dms.setQuota(email, options.quota);
+            if (!q.success) errors.push(`quota for ${email}: ${failure(q)}`);
           }
         }
       }
     }
 
-    // 5. Cloudflare DNS sync
+    // 4. Cloudflare DNS sync
     let dnsSyncResult: any = undefined;
     if (options.syncDns && this.cf.isConfigured()) {
       dnsSyncResult = await this.cf.syncDomainDns({
@@ -169,6 +175,7 @@ export class DomainManager {
       dnsSyncResult,
       accountsAdded,
       aliasesAdded,
+      errors,
     };
   }
 
@@ -182,8 +189,10 @@ export class DomainManager {
     dataDeleted: boolean;
     dnsDeletedResult?: any;
     accountsDeleted: string[];
+    errors: string[];
   }> {
     const domain = normalizeDomain(options.domain);
+    const errors: string[] = [];
 
     if (domain === normalizeDomain(this.config.primaryDomain)) {
       throw new Error(`Cannot remove the primary domain (${this.config.primaryDomain}).`);
@@ -198,12 +207,9 @@ export class DomainManager {
 
     for (const a of accounts) {
       if (!options.users || options.users.length === 0 || options.users.includes(a.username)) {
-        try {
-          this.dms.delAccount(a.email);
-          accountsDeleted.push(a.email);
-        } catch {
-          // ignore
-        }
+        const res = this.dms.delAccount(a.email);
+        if (res.success) accountsDeleted.push(a.email);
+        else errors.push(`mailbox ${a.email}: ${(res.stderr || res.stdout).trim() || `exit code ${res.code}`}`);
       }
     }
 
@@ -220,12 +226,7 @@ export class DomainManager {
       dkimRemoved = true;
     }
 
-    // 4. Restart or restart compose
-    if (this.docker.isDockerAvailable()) {
-      this.docker.composeDown();
-    }
-
-    // 5. Delete mail data if requested
+    // 4. Delete mail data if requested
     let dataDeleted = false;
     if (options.deleteData) {
       const mailDir = path.join(this.config.mailDataPath, domain);
@@ -235,15 +236,10 @@ export class DomainManager {
       }
     }
 
-    // 6. Delete Cloudflare DNS records if requested
+    // 5. Delete Cloudflare DNS records if requested
     let dnsDeletedResult: any = undefined;
     if (options.deleteDns && this.cf.isConfigured()) {
       dnsDeletedResult = await this.cf.deleteDomainDns(domain, this.config.dkimSelector);
-    }
-
-    // 7. Restart compose
-    if (this.docker.isDockerAvailable()) {
-      this.docker.composeUp(false);
     }
 
     return {
@@ -253,6 +249,7 @@ export class DomainManager {
       dataDeleted,
       dnsDeletedResult,
       accountsDeleted,
+      errors,
     };
   }
 

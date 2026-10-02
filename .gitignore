@@ -7,3 +7,5 @@ docker-data/
 __pycache__/
 logs/
 postmark.api.key.*
+
+.claude/settings.local.json

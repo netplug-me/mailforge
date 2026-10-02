@@ -1,3 +1,4 @@
+import { getAppConfig } from '../config.js';
 import { DockerService } from '../services/docker.js';
 import { CloudflareService } from '../services/cloudflare.js';
 import { DomainManager } from '../services/domain-manager.js';
@@ -33,7 +34,11 @@ export async function refreshDashboard(dm: DomainManager): Promise<void> {
   else ui.error(`Dashboard refresh failed: ${domainsResult.reason?.message ?? domainsResult.reason}`);
 
   // On a failed zone lookup keep the last known list and show the error in the zones box.
-  const zones = zonesResult.status === 'fulfilled' ? zonesResult.value : previous.zones;
+  const hidden = new Set(getAppConfig().hiddenZones);
+  const zones =
+    zonesResult.status === 'fulfilled'
+      ? zonesResult.value?.filter((z) => !hidden.has(z.name.toLowerCase()))
+      : previous.zones;
   const zonesError =
     zonesResult.status === 'rejected' ? String(zonesResult.reason?.message ?? zonesResult.reason) : undefined;
 

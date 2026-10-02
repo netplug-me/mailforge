@@ -29,6 +29,11 @@ export function getAppConfig(customProjectDir?: string): AppConfig {
   // docker-mailserver SSL_TYPE: letsencrypt | manual | self-signed | '' (no TLS; local testing only)
   const sslType = (process.env.SSL_TYPE ?? 'letsencrypt').trim();
 
+  const hiddenZones = (process.env.TUI_HIDE_ZONES || '')
+    .split(/[\s,]+/)
+    .map((z) => z.trim().toLowerCase())
+    .filter(Boolean);
+
   const config: AppConfig = {
     primaryDomain,
     mxHost,
@@ -43,6 +48,7 @@ export function getAppConfig(customProjectDir?: string): AppConfig {
     cloudflareApiToken,
     postmasterAddress,
     sslType,
+    hiddenZones,
   };
 
   if (!customProjectDir) {

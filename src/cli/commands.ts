@@ -115,6 +115,10 @@ export function registerCommands(program: Command): void {
         if (res.aliasesAdded.length > 0) {
           logger.success(`Aliases created: ${res.aliasesAdded.join(', ')}`);
         }
+        for (const e of res.errors) {
+          logger.warn(e);
+        }
+        if (res.errors.length > 0) process.exitCode = 1;
 
         if (opts.dns) {
           if (res.dnsSyncResult) {
@@ -161,6 +165,10 @@ export function registerCommands(program: Command): void {
         });
 
         logger.success(`Domain ${domain} removed from configuration.`);
+        for (const e of res.errors) {
+          logger.warn(e);
+        }
+        if (res.errors.length > 0) process.exitCode = 1;
         if (res.accountsDeleted.length > 0) {
           logger.info(`Deleted accounts: ${res.accountsDeleted.join(', ')}`);
         }
