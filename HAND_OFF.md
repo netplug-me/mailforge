@@ -110,7 +110,22 @@ Permissions in use: Zone DNS Edit, Zone Email Routing Rules Edit, Account Worker
    Remaining: open the Postmark-relayed test in Gmail (Show original) and confirm SPF/DKIM/DMARC all `PASS`
    (the messages in the mailboxes are inbound from Gmail, so they don't prove this), then consider DMARC
    `p=quarantine` after a week or two of clean reports.
-3. **Remote client access:** IMAP 993 and submission 587 are only reachable on the LAN. Plan: Cloudflare Tunnel + WARP.
+3. **Remote client access:** NOT DONE — needs Zero Trust permissions the API token doesn't list, plus a WARP client on each device.
+   Runbook (do it in the Cloudflare dashboard, Zero Trust):
+   1. Settings → WARP Client → enable device enrolment; add a device-enrolment policy for your email.
+   2. Networks → Tunnels → `switchboard-llc-inbound` → Private networks: route the Docker subnet of this compose project
+      (`docker network inspect cf-mail-tui_default`) through the tunnel. Remove that CIDR from the Split Tunnels *exclude* list
+      (or switch to "include" mode) so WARP sends it through.
+   3. Install WARP on the phone/laptop, enrol, then point the mail client at the mailserver's container IP
+      (or add a Local DNS / hosts entry `mail.switchboard.llc` → container IP) on ports **993** (IMAPS) and **587/465** (submission).
+   Constraints:
+   - **Never route port 25.** `PERMIT_DOCKER=connected-networks` treats traffic arriving from cloudflared's network as trusted;
+     port 25 through the tunnel would be an open relay for anyone in the WARP org.
+   - **Tunnel config is remotely managed:** a PUT to `/cfd_tunnel/{id}/configurations` replaces the whole ingress list.
+     GET it first and keep the `mail-ingest.switchboard.llc → http://inbound-bridge:8025` rule and the final `404` catch-all;
+     then re-run the signed POST test in §7.
+   - **fail2ban:** remote clients all appear as cloudflared's container IP, so a few failed logins would ban everyone.
+     Add that IP to `fail2ban-jail.cf` `ignoreip` (or leave `ENABLE_FAIL2BAN` off for those ports).
 4. **More mailboxes and aliases:** use the TUI (`./mailctl`) or `docker exec mailserver setup email add …`.
    Mailboxes now: `postmaster@switchboard.llc`, `lham@switchboard.llc`, `law@ham.switchboard.llc`.
 5. **DKIM for outbound** is handled by Postmark (verified domain), so DMS's own DKIM keys are not needed for relayed mail.
