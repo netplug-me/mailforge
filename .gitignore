@@ -6,3 +6,4 @@ docker-data/
 .DS_Store
 __pycache__/
 logs/
+postmark.api.key.*

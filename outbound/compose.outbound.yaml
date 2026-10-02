@@ -1,0 +1,15 @@
+# Outbound mail: relay everything through Postmark's SMTP service on 587 (STARTTLS).
+# Postmark uses the Server API Token as both SMTP username and password.
+# Use together with the other compose files, from the project directory:
+#
+#   docker compose -f compose.yaml -f inbound/compose.inbound.yaml -f outbound/compose.outbound.yaml up -d
+#
+# Reads POSTMARK_SERVER_TOKEN from the project's .env.
+
+services:
+  mailserver:
+    environment:
+      - RELAY_HOST=smtp.postmarkapp.com
+      - RELAY_PORT=587
+      - RELAY_USER=${POSTMARK_SERVER_TOKEN:?set POSTMARK_SERVER_TOKEN in .env}
+      - RELAY_PASSWORD=${POSTMARK_SERVER_TOKEN}
