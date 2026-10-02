@@ -1,4 +1,5 @@
 import { CloudflareDnsRecord, CloudflareZone } from '../types.js';
+import { isCloudflareRoutingMx, spfManagedElsewhere } from './dns.js';
 
 export interface CloudflareApiResponse<T> {
   success: boolean;
@@ -248,8 +249,12 @@ export class CloudflareService {
 
     const results: Array<{ recordType: string; name: string; action: 'created' | 'updated' | 'unchanged'; error?: string }> = [];
 
-    // 1. MX Record
-    try {
+    // 1. MX Record. With Cloudflare Email Routing the MX hosts are Cloudflare's; adding the mail host
+    // beside them would send some mail to a server that never receives it.
+    const existingMx = await this.listRecords(zone.id, { name: domain, type: 'MX' }).catch(() => []);
+    if (existingMx.some((r) => isCloudflareRoutingMx(r.content))) {
+      results.push({ recordType: 'MX', name: domain, action: 'unchanged' });
+    } else try {
       const mxRes = await this.upsertRecord(zone.id, {
         type: 'MX',
         name: domain,
@@ -265,7 +270,12 @@ export class CloudflareService {
 
     // 2. SPF TXT Record
     const spfContent = options.spfValue || 'v=spf1 mx ~all';
-    try {
+    // Keep an SPF that already authorises Cloudflare Email Routing / Postmark; the default would drop them.
+    const existingTxt = await this.listRecords(zone.id, { name: domain, type: 'TXT' }).catch(() => []);
+    const managedSpf = existingTxt.find((r) => /^"?v=spf1/i.test(r.content) && spfManagedElsewhere(r.content));
+    if (managedSpf && !options.spfValue) {
+      results.push({ recordType: 'SPF (TXT)', name: domain, action: 'unchanged' });
+    } else try {
       const spfRes = await this.upsertRecord(zone.id, {
         type: 'TXT',
         name: domain,

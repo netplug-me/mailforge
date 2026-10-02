@@ -49,3 +49,37 @@ assert.equal(cert.issuer, 'YE1');
 assert.equal(parseCert('garbage'), undefined);
 
 console.log('ops parsers: ok');
+
+// DNS checker: Cloudflare Email Routing MX hosts count as valid.
+import { isCloudflareRoutingMx, spfManagedElsewhere, DnsCheckerService } from '../dist/services/dns.js';
+assert.ok(isCloudflareRoutingMx('route1.mx.cloudflare.net.'));
+assert.ok(!isCloudflareRoutingMx('mail.switchboard.llc'));
+assert.ok(!isCloudflareRoutingMx('evilmx.cloudflare.net.example.com'));
+assert.ok(spfManagedElsewhere('"v=spf1 include:_spf.mx.cloudflare.net include:spf.mtasv.net mx ~all"'));
+assert.ok(!spfManagedElsewhere('v=spf1 mx ~all'));
+const live = await new DnsCheckerService().checkMx('switchboard.llc', 'mail.switchboard.llc').catch(() => undefined);
+if (live && live.records.length) console.log('live MX check:', live.status, '-', live.detail);
+console.log('dns checker: ok');
+
+// DNS sync must not add a conflicting MX or clobber an Email Routing / Postmark SPF.
+import { CloudflareService } from '../dist/services/cloudflare.js';
+function stubbedSync(existing, opts = {}) {
+  const cf = new CloudflareService();
+  const upserts = [];
+  cf.getZoneForDomain = async () => ({ id: 'z', name: 'switchboard.llc', status: 'active' });
+  cf.listRecords = async (_z, q) => existing.filter((r) => r.type === q.type && r.name === q.name);
+  cf.upsertRecord = async (_z, rec) => { upserts.push(rec); return { action: 'created', record: rec }; };
+  return cf.syncDomainDns({ domain: 'switchboard.llc', mxHost: 'mail.switchboard.llc', dkimSelector: 'mail', ...opts }).then(() => upserts);
+}
+const routed = [
+  { type: 'MX', name: 'switchboard.llc', content: 'route1.mx.cloudflare.net', priority: 5 },
+  { type: 'TXT', name: 'switchboard.llc', content: 'v=spf1 include:_spf.mx.cloudflare.net include:spf.mtasv.net mx ~all' },
+];
+let ups = await stubbedSync(routed);
+assert.ok(!ups.some((u) => u.type === 'MX'), 'no MX added beside Cloudflare Email Routing');
+assert.ok(!ups.some((u) => u.type === 'TXT' && u.name === 'switchboard.llc'), 'managed SPF left alone');
+assert.ok(ups.some((u) => u.name === '_dmarc.switchboard.llc'), 'DMARC still synced');
+ups = await stubbedSync([]);
+assert.ok(ups.some((u) => u.type === 'MX' && u.content === 'mail.switchboard.llc'), 'MX added on a plain domain');
+assert.ok(ups.some((u) => u.type === 'TXT' && u.content === 'v=spf1 mx ~all'), 'default SPF on a plain domain');
+console.log('dns sync guards: ok');

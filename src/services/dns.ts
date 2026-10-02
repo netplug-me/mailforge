@@ -1,6 +1,18 @@
 import dns from 'node:dns/promises';
 import { DomainDnsStatus, DnsCheckItem } from '../types.js';
 
+const stripDot = (host: string) => host.toLowerCase().replace(/\.$/, '');
+
+/** Cloudflare Email Routing's MX hosts (route1-3.mx.cloudflare.net). */
+export function isCloudflareRoutingMx(host: string): boolean {
+  return stripDot(host).endsWith('.mx.cloudflare.net');
+}
+
+/** An SPF record that already includes Cloudflare Email Routing or Postmark is managed outside the generic `v=spf1 mx` default. */
+export function spfManagedElsewhere(spf: string): boolean {
+  return /include:(_spf\.mx\.cloudflare\.net|spf\.mtasv\.net)/i.test(spf);
+}
+
 export class DnsCheckerService {
   /**
    * Resolves MX records for a domain
@@ -19,12 +31,19 @@ export class DnsCheckerService {
 
       const formatted = records.map((r) => `${r.priority} ${r.exchange}`);
       if (expectedMxHost) {
-        const matches = records.some((r) => r.exchange.toLowerCase() === expectedMxHost.toLowerCase() || r.exchange.toLowerCase() === `${expectedMxHost.toLowerCase()}.`);
+        const expected = stripDot(expectedMxHost);
+        if (records.some((r) => stripDot(r.exchange) === expected)) {
+          return { status: 'valid', records: formatted, expected: expectedMxHost, detail: 'MX points to mail server' };
+        }
+        // Inbound arrives through Cloudflare Email Routing → Worker → tunnel, so those MX hosts are correct too.
+        if (records.every((r) => isCloudflareRoutingMx(r.exchange))) {
+          return { status: 'valid', records: formatted, expected: expectedMxHost, detail: 'MX via Cloudflare Email Routing' };
+        }
         return {
-          status: matches ? 'valid' : 'invalid',
+          status: 'invalid',
           records: formatted,
           expected: expectedMxHost,
-          detail: matches ? 'MX points to mail server' : `MX does not match expected host (${expectedMxHost})`,
+          detail: `MX does not match expected host (${expectedMxHost})`,
         };
       }
 

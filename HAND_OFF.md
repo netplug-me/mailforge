@@ -67,6 +67,9 @@ Permissions in use: Zone DNS Edit, Zone Email Routing Rules Edit, Account Worker
 - Catch-all rule → Worker `switchboard-llc-inbound`.
 - `_dmarc` (`p=none`), the apex A records and `www` are untouched.
 
+The TUI's DNS check accepts Cloudflare Email Routing MX hosts as valid, and "Sync records" skips the MX and SPF when
+they are already Email Routing / Postmark-managed (so it can't re-add the mail-host MX or overwrite the SPF).
+
 `inbound/setup_cloudflare.py` recreates all of this idempotently (`--dry-run` first).
 
 ## 5. Fixes made to cf-mail-tui tonight
