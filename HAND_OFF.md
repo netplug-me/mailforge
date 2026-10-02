@@ -107,9 +107,9 @@ Permissions in use: Zone DNS Edit, Zone Email Routing Rules Edit, Account Worker
 2. **Outbound mail:** DONE via Postmark (`outbound/compose.outbound.yaml`, token in `.env` as `POSTMARK_SERVER_TOKEN`).
    SPF now `v=spf1 include:_spf.mx.cloudflare.net include:spf.mtasv.net mx ~all` (applied 2026-10-01 with
    `inbound/setup_cloudflare.py`). DNS checked 2026-10-01: SPF record correct, `pm-bounces` CNAME → `pm.mtasv.net`, DMARC `p=none; aspf=r`.
-   Remaining: open the Postmark-relayed test in Gmail (Show original) and confirm SPF/DKIM/DMARC all `PASS`
-   (the messages in the mailboxes are inbound from Gmail, so they don't prove this), then consider DMARC
-   `p=quarantine` after a week or two of clean reports.
+   **Verified 2026-10-01:** a relayed test to Gmail landed in the inbox with `dkim=pass` (`d=switchboard.llc`, selector
+   `20261002040946pm`, plus Postmark's own `pm.mtasv.net`), `spf=pass` via `pm-bounces.switchboard.llc`, and `dmarc=pass`.
+   Remaining: consider DMARC `p=quarantine` after a week or two of clean reports.
 3. **Remote client access:** NOT DONE — needs Zero Trust permissions the API token doesn't list, plus a WARP client on each device.
    Runbook (do it in the Cloudflare dashboard, Zero Trust):
    1. Settings → WARP Client → enable device enrolment; add a device-enrolment policy for your email.
