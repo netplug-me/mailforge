@@ -5,8 +5,9 @@
   2. Proxied CNAME  mail-ingest.<domain> -> <tunnel-id>.cfargotunnel.com
   3. Email Worker "<domain>-inbound" (worker/worker.js) with BRIDGE_URL and BRIDGE_SECRET
   4. Email Routing enabled, with a catch-all rule sending every address to the Worker.
-     Email Routing needs its own MX/SPF records, so a conflicting MX record and the
-     domain's SPF TXT record are replaced (both are printed before anything changes).
+     Email Routing needs its own MX/SPF records, so a conflicting MX record is removed and
+     the domain's SPF TXT record gains the Cloudflare include (and Postmark's, when
+     POSTMARK_SERVER_TOKEN is set). Both are printed before anything changes.
   5. Writes the tunnel connector token into .env as CF_TUNNEL_TOKEN.
 
 Usage (from the project dir that holds .env):  python3 inbound/setup_cloudflare.py [--dry-run]
@@ -56,6 +57,9 @@ NAME = f"{DOMAIN.replace('.', '-')}-inbound"
 INGEST_HOST = f'mail-ingest.{DOMAIN}'
 BRIDGE_URL = f'https://{INGEST_HOST}/ingest'
 CF_MX_SPF = 'include:_spf.mx.cloudflare.net'
+POSTMARK_SPF = 'include:spf.mtasv.net'
+# Mechanisms that must be present in the apex SPF record (Postmark only when outbound relay is configured).
+SPF_INCLUDES = [CF_MX_SPF] + ([POSTMARK_SPF] if env.get('POSTMARK_SERVER_TOKEN') else [])
 
 
 def call(method, path, body=None, raw=None, ctype='application/json'):
@@ -138,8 +142,9 @@ for r in records:
         if not DRY:
             call('DELETE', f"/zones/{ZID}/dns_records/{r['id']}")
 for r in records:
-    if r['type'] == 'TXT' and r['name'] == DOMAIN and r['content'].strip('"').startswith('v=spf1') and CF_MX_SPF not in r['content']:
-        new = re.sub(r'\s+', ' ', r['content'].strip('"').replace('v=spf1', f'v=spf1 {CF_MX_SPF}', 1))
+    missing = [m for m in SPF_INCLUDES if m not in r['content']]
+    if r['type'] == 'TXT' and r['name'] == DOMAIN and r['content'].strip('"').startswith('v=spf1') and missing:
+        new = re.sub(r'\s+', ' ', r['content'].strip('"').replace('v=spf1', 'v=spf1 ' + ' '.join(missing), 1))
         step(f"update SPF '{r['content']}' -> '{new}'")
         if not DRY:
             call('PATCH', f"/zones/{ZID}/dns_records/{r['id']}", {'content': new})

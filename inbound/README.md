@@ -31,5 +31,4 @@ Sender ─SMTP─▶ Cloudflare Email Routing (MX) ─▶ Email Worker
 4. `docker compose -f compose.yaml -f inbound/compose.inbound.yaml up -d`
 5. Send a test message to a mailbox on the domain and check `docker compose logs inbound-bridge`.
 
-Outbound mail is separate: relay through a sending provider (SES, Mailgun, Postmark) on port 587
-and add it to the SPF record.
+Outbound mail is separate: see `../outbound/README.md` (Postmark relay).

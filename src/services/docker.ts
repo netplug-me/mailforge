@@ -17,6 +17,25 @@ export class DockerService {
     this.projectDir = projectDir || getAppConfig().projectDir;
   }
 
+  /**
+   * `docker compose` plus -f flags for compose.yaml and whichever override files apply.
+   * A plain `docker compose up` would recreate the mailserver without the inbound
+   * (PERMIT_DOCKER) and outbound (Postmark relay) settings.
+   */
+  private composeArgs(): string[] {
+    getAppConfig(this.projectDir); // loads .env into process.env
+    const files = ['compose.yaml'];
+    const overrides: Array<[string, string]> = [
+      ['inbound/compose.inbound.yaml', 'BRIDGE_SECRET'],
+      ['outbound/compose.outbound.yaml', 'POSTMARK_SERVER_TOKEN'],
+    ];
+    for (const [file, requiredVar] of overrides) {
+      // These files fail interpolation without their variable, so skip them until it is set.
+      if (fs.existsSync(path.join(this.projectDir, file)) && process.env[requiredVar]) files.push(file);
+    }
+    return ['compose', ...files.flatMap((f) => ['-f', f])];
+  }
+
   public isDockerAvailable(): boolean {
     const res = spawnSync('docker', ['--version'], { encoding: 'utf-8' });
     return res.status === 0;
@@ -40,7 +59,7 @@ export class DockerService {
   }
 
   public composeUp(forceRecreate = false): ExecResult {
-    const args = ['compose', 'up', '-d'];
+    const args = [...this.composeArgs(), 'up', '-d'];
     if (forceRecreate) {
       args.push('--force-recreate');
     }
@@ -57,7 +76,7 @@ export class DockerService {
   }
 
   public composeDown(): ExecResult {
-    const res = spawnSync('docker', ['compose', 'down'], {
+    const res = spawnSync('docker', [...this.composeArgs(), 'down'], {
       cwd: this.projectDir,
       encoding: 'utf-8',
     });
@@ -70,7 +89,7 @@ export class DockerService {
   }
 
   public composeRestart(): ExecResult {
-    const res = spawnSync('docker', ['compose', 'restart'], {
+    const res = spawnSync('docker', [...this.composeArgs(), 'restart'], {
       cwd: this.projectDir,
       encoding: 'utf-8',
     });
@@ -83,7 +102,7 @@ export class DockerService {
   }
 
   public getLogs(tail = 100): ExecResult {
-    const res = spawnSync('docker', ['compose', 'logs', `--tail=${tail}`, 'mailserver'], {
+    const res = spawnSync('docker', [...this.composeArgs(), 'logs', `--tail=${tail}`, 'mailserver'], {
       cwd: this.projectDir,
       encoding: 'utf-8',
     });
@@ -112,19 +131,19 @@ export class DockerService {
   }
 
   public composeUpAsync(forceRecreate = false): Promise<ExecResult> {
-    return this.runAsync(['compose', 'up', '-d', ...(forceRecreate ? ['--force-recreate'] : [])]);
+    return this.runAsync([...this.composeArgs(), 'up', '-d', ...(forceRecreate ? ['--force-recreate'] : [])]);
   }
 
   public composeDownAsync(): Promise<ExecResult> {
-    return this.runAsync(['compose', 'down']);
+    return this.runAsync([...this.composeArgs(), 'down']);
   }
 
   public composeRestartAsync(): Promise<ExecResult> {
-    return this.runAsync(['compose', 'restart']);
+    return this.runAsync([...this.composeArgs(), 'restart']);
   }
 
   public getLogsAsync(tail = 100): Promise<ExecResult> {
-    return this.runAsync(['compose', 'logs', `--tail=${tail}`, 'mailserver']);
+    return this.runAsync([...this.composeArgs(), 'logs', `--tail=${tail}`, 'mailserver']);
   }
 
   public exec(args: string[]): ExecResult {

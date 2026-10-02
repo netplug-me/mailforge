@@ -2,7 +2,7 @@
 
 **Date:** September 23, 2026
 **Status:** Inbound mail for `switchboard.llc` is live and has been tested from the public internet into the mailbox.
-Outbound mail is not set up yet.
+Outbound mail is relayed through Postmark (see `outbound/README.md`); tested to Yahoo and Gmail.
 **Host:** this workstation (Docker). The home IP is not published anywhere and port 25 does not need to be reachable.
 
 ---
@@ -105,11 +105,12 @@ Permissions in use: Zone DNS Edit, Zone Email Routing Rules Edit, Account Worker
 
 1. **Send a real email** from Gmail or a phone to `postmaster@switchboard.llc`. That is the only hop not exercised yet
    (Email Routing → Worker). Check it with `docker compose ... logs inbound-bridge` and the Worker logs in the dashboard.
-2. **Outbound mail:** choose a relay (Amazon SES, Mailgun, Postmark), configure DMS relay on 587, and add it to SPF.
-   Until then, mail sent from this box will likely be refused or spam-foldered.
+2. **Outbound mail:** DONE via Postmark (`outbound/compose.outbound.yaml`, token in `.env` as `POSTMARK_SERVER_TOKEN`).
+   Remaining: apply the SPF change (`python3 inbound/setup_cloudflare.py`, adds `include:spf.mtasv.net`; the live
+   record was still `v=spf1 mx ~all`) and check SPF/DKIM/DMARC in a received message's headers.
 3. **Remote client access:** IMAP 993 and submission 587 are only reachable on the LAN. Plan: Cloudflare Tunnel + WARP.
 4. **More mailboxes and aliases:** use the TUI (`./mailctl`) or `docker exec mailserver setup email add …`.
    Only `postmaster@` exists now.
-5. **DKIM for outbound** is not set up yet (the TUI can generate keys; publish the TXT record when outbound is ready).
+5. **DKIM for outbound** is handled by Postmark (verified domain), so DMS's own DKIM keys are not needed for relayed mail.
 6. **Container warnings:** docker-mailserver warns that running Rspamd alongside Amavis/SpamAssassin/OpenDKIM/OpenDMARC
    is discouraged. It isn't a problem, but consider slimming the enabled services later.
