@@ -169,7 +169,7 @@ Full read-through of `src/`, the inbound/outbound pipelines, and the tests (type
 - **Zones box hide-list:** `TUI_HIDE_ZONES` in `.env` (comma separated; documented in `.env.example`) hides Cloudflare zones from the TUI.
   Display only: nothing is changed in Cloudflare. Currently `netplug.me,elite-athelete.com` (both still active zones, DNS untouched).
   Implemented in `config.ts` (`hiddenZones`) and filtered in `tui/dashboard.ts`.
-- **Mail domains now registered** (`POSTFIX_VIRTUAL_DOMAINS`): `ham.switchboard.llc`, `rcpsolutions.net` (3 mailboxes), `scarletmoon.org` (0 mailboxes).
+- **Mail domains now registered** (`POSTFIX_VIRTUAL_DOMAINS`): `ham.switchboard.llc`, `rcpsolutions.net` (3 mailboxes), `scarletmoon.org` (0 mailboxes), `clank.pub`, `netplug.org` (2 mailboxes), `pinpoint.host` (2 mailboxes); see "netplug.org and pinpoint.host added" below.
   Added with `mailctl add <domain>` and *without* `--dns`, so Cloudflare DNS and Email Routing records were not touched.
 - **`POSTFIX_VIRTUAL_DOMAINS` is TUI-only.** docker-mailserver never reads it; Postfix's `virtual_mailbox_domains` is `/etc/postfix/vhost`,
   generated from the mailboxes/aliases in DMS. A domain only accepts mail once it has a mailbox or alias.
@@ -191,6 +191,18 @@ Full read-through of `src/`, the inbound/outbound pipelines, and the tests (type
 - **Verified:** a Gmail message to `payments@rcpsolutions.net` was delivered into its INBOX (amavis `Passed CLEAN`, LMTP `Saved`);
   `./mailctl list` shows MX valid.
 - **Other registrar change:** `scarletmoon.org` nameservers also moved to Cloudflare (zone active; no mail configured). `staffsetter.io` ignored.
+
+**netplug.org and pinpoint.host added — 2026-10-02**
+- Registered with `mailctl add <domain>` (no `--dns`); DKIM keys generated (selector `mail`). Both were already active Cloudflare zones
+  (`rosa`/`santino.ns.cloudflare.com`) with no MX records, so no live mail was affected.
+- Inbound: Email Routing enabled on both (Cloudflare added its MX and SPF) and a catch-all rule → Worker `switchboard-llc-inbound`, same recipe as `rcpsolutions.net`.
+- `netplug.org` was an empty zone; added DMARC `v=DMARC1; p=none; aspf=r`. `pinpoint.host` kept its existing records
+  (Wix-style A records, `partners` tunnel CNAME, `www`, GoDaddy `_domainconnect`, DMARC `p=quarantine`).
+- **Mailboxes:** `postmaster@` and `lham@` on each domain. Generated passwords are in `~/netplug-pinpoint-mail-credentials` (mode 600, not in the repo).
+- **Verified:** a signed POST to `https://mail-ingest.switchboard.llc/ingest` for `postmaster@` on each domain returned `250 queued` and the message
+  is in the INBOX (bridge → DMS path only; the Cloudflare Email Routing → Worker leg has not been tested with a real external message).
+  Note: Cloudflare's edge returns `403 error code: 1010` for the default Python `urllib` user-agent, so send a `curl/...` user-agent when scripting this test.
+- Not done: Postmark sender verification and the Postmark SPF include (only needed to send as these domains).
 
 **Open follow-ups**
 1. **Postmark:** verify `rcpsolutions.net` as a sender domain (DKIM + return-path) in the Postmark dashboard; the server token in `.env` cannot do it.
