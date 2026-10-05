@@ -8,14 +8,20 @@ Replaces fragmented bash scripts (`list-domains.sh`, `add-domain.sh`, `remove-do
 
 ## Features
 
-- **Interactive TUI Dashboard (`mailctl`)**:
-  - Live Docker container status, primary domain, and MX hostname display.
-  - Multi-column domain health matrix: mailbox counts, DKIM generation status, and live DNS checks (MX, SPF, DKIM, DMARC).
-  - Interactive wizards to add/remove domains, manage mailboxes/aliases, inspect DKIM keys, and control containers.
-- **Toolbox (TUI ▸ Toolbox)**: mail queue (retry / purge deferred), colour-coded delivery log, mailbox quota bars,
-  connected IMAP clients, fail2ban bans + unban, TLS certificate countdown, inbound/outbound path check,
-  Postmark 7-day stats and recent bounces (needs `POSTMARK_SERVER_TOKEN`), and a send-test-email action.
-  The header also shows certificate days left and the bridge / tunnel / relay state.
+- **Interactive TUI (`mailctl`)**, built on [Ink](https://github.com/vadimdemedes/ink) as three screens:
+  - **Mailboxes** (the home screen): every mailbox and alias grouped by domain, with live quota bars from Dovecot.
+    Add several mailboxes in one dialog (generated passwords are shown once), change a password, set or remove a
+    quota, add or delete forwarders, and filter by domain. The side panel shows the mail-app settings for the
+    selected mailbox (and the webmail URL when `WEBMAIL_HOSTNAME` is set).
+  - **Domains**: health matrix (mailboxes, DKIM, live MX / SPF / DKIM / DMARC), the found-vs-expected DNS detail for the
+    selected domain, and the Cloudflare zone list. Add or remove a domain, publish DNS, view or regenerate DKIM.
+  - **Tools**: mail queue (retry / purge deferred), colour-coded delivery log, mailbox quota bars,
+    connected IMAP clients, fail2ban bans + unban, TLS certificate countdown, inbound/outbound path check,
+    Postmark 7-day stats and recent bounces (needs `POSTMARK_SERVER_TOKEN`), a send-test-email action and
+    container start / stop / logs.
+  - Every action is one dialog with all its fields, not a chain of prompts; results appear as a toast or, when you
+    need to read or copy something (passwords, DKIM value), a dialog. The status bar always shows container,
+    bridge / tunnel / relay, Cloudflare and certificate days left.
 - **Automated Cloudflare DNS Management**:
   - Automatic zone detection (apex and sub-domains).
   - Automatically provisions or updates MX, SPF (`v=spf1`), DKIM (`mail._domainkey`), and DMARC (`_dmarc`) records.
@@ -75,6 +81,10 @@ npm start
 node dist/index.js
 ```
 
+Keys: `1` `2` `3` or `tab` switch screens, `↑↓` move, `enter` opens the actions for the selected row,
+`r` refreshes, `esc` cancels a dialog, `ctrl+c` quits. Each screen shows its own shortcuts in the footer.
+Press `a` to add (a mailbox or a domain), `d` / `x` to delete, `p` for a password, `q` for a quota, `f` to filter by domain.
+
 ### CLI Commands
 
 ```bash
@@ -130,7 +140,13 @@ src/
 │   ├── cloudflare.ts      # Cloudflare REST API client (zone & records)
 │   └── domain-manager.ts  # Domain orchestration
 └── tui/
-    ├── dashboard.ts       # Dashboard header & summary UI
-    ├── actions.ts         # Interactive wizard prompts (@clack/prompts)
-    └── app.ts             # Main interactive application loop
+    ├── app.tsx            # Starts Ink (alternate screen) and the first refresh
+    ├── view.tsx           # App shell: status bar, tabs, footer, dialog/dock routing, key lock
+    ├── screens.tsx        # Mailboxes, Domains and Tools screens
+    ├── widgets.tsx        # Panel, status bar, form / confirm / notice dialogs, select dock
+    ├── flows.ts           # One function per user task (add mailbox, remove domain, …)
+    ├── actions.ts         # The Tools screen's tools (queue, logs, fail2ban, container, …)
+    ├── dashboard.ts       # Refresh: fast local state first, then live DNS, zones, usage
+    ├── ui.ts              # State store and prompt bridge (select, text, confirm, form, notice, toast)
+    └── theme.ts           # Palette, truncate/fit helpers, password generator
 ```

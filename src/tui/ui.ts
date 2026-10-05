@@ -1,4 +1,5 @@
-import { CloudflareZone, DomainInfo } from '../types.js';
+import type { CloudflareZone, DomainInfo, MailboxAccount, MailboxAlias } from '../types.js';
+import type { QuotaRow } from '../services/ops.js';
 
 // Bridge between the imperative action flows (actions.ts) and the Ink view (App.tsx).
 // Actions `await ui.select(...)` etc.; the view renders whatever prompt is pending and
@@ -19,7 +20,38 @@ export interface SelectOption<T> {
   hint?: string;
 }
 
+export type FormValues = Record<string, string | boolean>;
+
+export type FormField =
+  | {
+      kind: 'text';
+      key: string;
+      label: string;
+      placeholder?: string;
+      mask?: boolean;
+      initial?: string;
+      /** Dim help text under the field while it has focus. */
+      hint?: string;
+      validate?: (value: string, values: FormValues) => string | undefined;
+    }
+  | { kind: 'select'; key: string; label: string; options: Array<{ value: string; label: string }>; initial?: string; hint?: string }
+  | { kind: 'toggle'; key: string; label: string; initial?: boolean; hint?: string };
+
 export type Prompt =
+  | {
+      kind: 'form';
+      title: string;
+      submitLabel?: string;
+      danger?: boolean;
+      fields: FormField[];
+      resolve: (v: FormValues | Cancel) => void;
+    }
+  | {
+      kind: 'notice';
+      title: string;
+      lines: OutputLine[];
+      resolve: () => void;
+    }
   | {
       kind: 'select';
       message: string;
@@ -60,8 +92,18 @@ export interface Health {
   certDays?: number;
 }
 
+export interface Toast {
+  id: number;
+  kind: 'success' | 'error' | 'warn' | 'info';
+  text: string;
+}
+
 export interface DashboardData {
   domains: DomainInfo[];
+  accounts: MailboxAccount[];
+  aliases: MailboxAlias[];
+  /** Per-mailbox usage keyed by lower-cased address; undefined until the mail server answered. */
+  usage?: Record<string, QuotaRow>;
   containerStatus: 'running' | 'exited' | 'stopped' | 'not_found';
   cloudflareConfigured: boolean;
   health?: Health;
@@ -80,13 +122,14 @@ export interface UiState {
   output: OutputLine[];
   dashboard: DashboardData;
   refreshing: boolean;
+  toast?: Toast;
 }
 
 class UiController {
   private state: UiState = {
     promptId: 0,
     output: [],
-    dashboard: { domains: [], containerStatus: 'not_found', cloudflareConfigured: false },
+    dashboard: { domains: [], accounts: [], aliases: [], containerStatus: 'not_found', cloudflareConfigured: false },
     refreshing: true,
   };
   private listeners = new Set<() => void>();
@@ -155,6 +198,56 @@ class UiController {
     });
   }
 
+  /** A multi-field form shown as one dialog; resolves with every value, or CANCEL. */
+  form(
+    title: string,
+    fields: FormField[],
+    opts: { submitLabel?: string; danger?: boolean } = {}
+  ): Promise<FormValues | Cancel> {
+    return new Promise((resolve) => {
+      this.setPrompt({
+        kind: 'form',
+        title,
+        fields,
+        ...opts,
+        resolve: (v) => {
+          this.set({ prompt: undefined });
+          resolve(v);
+        },
+      });
+    });
+  }
+
+  /** A dialog that shows a result (credentials, DKIM value, …) until the user dismisses it. */
+  notice(title: string, lines: OutputLine[]): Promise<void> {
+    return new Promise((resolve) => {
+      this.setPrompt({
+        kind: 'notice',
+        title,
+        lines,
+        resolve: () => {
+          this.set({ prompt: undefined });
+          resolve();
+        },
+      });
+    });
+  }
+
+  // ── toast ──────────────────────────────────────────────────────────────────
+
+  private toastTimer?: NodeJS.Timeout;
+
+  /** One-line message in the footer; clears itself after a few seconds. */
+  toast(kind: Toast['kind'], text: string, ms = 6000) {
+    const id = (this.state.toast?.id ?? 0) + 1;
+    if (this.toastTimer) clearTimeout(this.toastTimer);
+    this.set({ toast: { id, kind, text } });
+    this.toastTimer = setTimeout(() => {
+      if (this.state.toast?.id === id) this.set({ toast: undefined });
+    }, ms);
+    this.toastTimer.unref?.();
+  }
+
   // ── progress ───────────────────────────────────────────────────────────────
 
   /**
@@ -202,6 +295,11 @@ class UiController {
 
   setDashboard(dashboard: DashboardData) {
     this.set({ dashboard, refreshing: false });
+  }
+
+  /** Merges fields into the dashboard without touching the refreshing marker. */
+  patchDashboard(patch: Partial<DashboardData>) {
+    this.set({ dashboard: { ...this.state.dashboard, ...patch } });
   }
 }
 

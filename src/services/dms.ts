@@ -217,6 +217,15 @@ fi
   }
 
   /**
+   * Non-blocking `runSetup` for the TUI. Falls back to the blocking variant when the
+   * container is not running (it then starts a throwaway container).
+   */
+  public async runSetupAsync(args: string[]): Promise<ExecResult> {
+    if (this.docker.getContainerStatus() !== 'running') return this.runSetup(args);
+    return this.docker.runAsync(['exec', 'mailserver', 'setup', ...args]);
+  }
+
+  /**
    * Lists all email accounts configured in DMS
    */
   public listAccounts(): MailboxAccount[] {
@@ -255,6 +264,13 @@ fi
       args.push(password);
     }
     return this.runSetup(args);
+  }
+
+  /**
+   * Sets a new password on an existing account
+   */
+  public updateAccount(email: string, password: string): ExecResult {
+    return this.runSetup(['email', 'update', email, password]);
   }
 
   /**

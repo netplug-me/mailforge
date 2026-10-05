@@ -158,7 +158,9 @@ export class DockerService {
     const res = await this.runAsync([
       'ps', '-a',
       '--filter', `label=com.docker.compose.service=${service}`,
-      '--filter', `label=com.docker.compose.project.working_dir=${this.projectDir}`,
+      // Match on the project name (the directory's basename), not its path: the path changes when
+      // the project is moved, and then the stack looked "not deployed".
+      '--filter', `label=com.docker.compose.project=${path.basename(this.projectDir).toLowerCase().replace(/[^a-z0-9_-]/g, '')}`,
       '--format', '{{.State}}',
     ]);
     return res.success ? res.stdout.trim().split('\n')[0] || undefined : undefined;
