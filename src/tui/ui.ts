@@ -87,6 +87,8 @@ export interface OutputLine {
 export interface Health {
   bridge?: string;
   tunnel?: string;
+  /** Only set when WEBMAIL_HOSTNAME is configured. */
+  webmail?: string;
   relay: boolean;
   /** Days until the TLS certificate expires. */
   certDays?: number;

@@ -101,10 +101,11 @@ export async function refreshDashboard(dm: DomainManager): Promise<void> {
 async function loadHealth(mailserverUp: boolean): Promise<Health> {
   const ops = new OpsService();
   const docker = new DockerService();
-  const [bridge, tunnel, cert] = await Promise.all([
+  const [bridge, tunnel, webmail, cert] = await Promise.all([
     docker.serviceState('inbound-bridge'),
     docker.serviceState('cloudflared'),
+    process.env.WEBMAIL_HOSTNAME ? docker.serviceState('webmail') : Promise.resolve(undefined),
     mailserverUp ? ops.cert().catch(() => undefined) : Promise.resolve(undefined),
   ]);
-  return { bridge, tunnel, relay: Boolean(process.env.POSTMARK_SERVER_TOKEN), certDays: cert?.daysLeft };
+  return { bridge, tunnel, webmail, relay: Boolean(process.env.POSTMARK_SERVER_TOKEN), certDays: cert?.daysLeft };
 }

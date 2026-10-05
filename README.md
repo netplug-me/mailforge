@@ -22,6 +22,9 @@ Replaces fragmented bash scripts (`list-domains.sh`, `add-domain.sh`, `remove-do
   - Every action is one dialog with all its fields, not a chain of prompts; results appear as a toast or, when you
     need to read or copy something (passwords, DKIM value), a dialog. The status bar always shows container,
     bridge / tunnel / relay, Cloudflare and certificate days left.
+- **Webmail (optional)**: a Roundcube overlay in `webmail/compose.webmail.yaml`, attached to `mailctl`'s compose commands when
+  `WEBMAIL_HOSTNAME` is set in `.env`. It uses IMAPS 993 and authenticated submission 587 only. Publish it through the Cloudflare
+  Tunnel behind a Cloudflare Access policy (see `HAND_OFF.md` §12); it is not exposed on the host.
 - **Automated Cloudflare DNS Management**:
   - Automatic zone detection (apex and sub-domains).
   - Automatically provisions or updates MX, SPF (`v=spf1`), DKIM (`mail._domainkey`), and DMARC (`_dmarc`) records.

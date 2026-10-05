@@ -1,0 +1,36 @@
+# Roundcube webmail for the mail server. Attached by mailctl only when WEBMAIL_HOSTNAME is
+# set in .env. From the project directory:
+#
+#   docker compose -f compose.yaml -f inbound/compose.inbound.yaml -f outbound/compose.outbound.yaml \
+#     -f webmail/compose.webmail.yaml up -d --no-deps webmail
+#
+# Nothing here is published on the host. Reach it through the Cloudflare Tunnel with an ingress
+# rule  <WEBMAIL_HOSTNAME> -> http://webmail:80  and put a Cloudflare Access policy in front
+# of that hostname BEFORE publishing it (Roundcube's own login page must not face the internet).
+#
+# Roundcube logs in over IMAPS (993) and sends over authenticated submission (587), never
+# port 25: PERMIT_DOCKER=connected-networks trusts everything on this compose network, so port
+# 25 from here would be an open relay. It reaches the mail server through the host's published
+# ports (extra_hosts below), so the TLS certificate name (MX_HOST) matches and the mailserver
+# container needs no change.
+
+services:
+  webmail:
+    image: roundcube/roundcubemail:1.6.19-apache
+    restart: unless-stopped
+    extra_hosts:
+      - "${MX_HOST:?set MX_HOST in .env}:host-gateway"
+    environment:
+      - ROUNDCUBEMAIL_DEFAULT_HOST=ssl://${MX_HOST}
+      - ROUNDCUBEMAIL_DEFAULT_PORT=993
+      - ROUNDCUBEMAIL_SMTP_SERVER=tls://${MX_HOST}
+      - ROUNDCUBEMAIL_SMTP_PORT=587
+      - ROUNDCUBEMAIL_DB_TYPE=sqlite
+      - ROUNDCUBEMAIL_UPLOAD_MAX_FILESIZE=25M
+      - ROUNDCUBEMAIL_PLUGINS=archive,zipdownload
+    volumes:
+      - ./docker-data/webmail/db:/var/roundcube/db
+      - ./webmail/custom.inc.php:/var/roundcube/config/custom.inc.php:ro
+      - ./webmail/https-behind-proxy.conf:/etc/apache2/conf-enabled/https-behind-proxy.conf:ro
+    depends_on:
+      - mailserver

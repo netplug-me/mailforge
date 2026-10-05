@@ -132,6 +132,12 @@ export function StatusBar({
             <Dot label="tunnel" state={health?.tunnel} />
             <Text> </Text>
             <Dot label="relay" state={health?.relay ? 'running' : undefined} />
+            {process.env.WEBMAIL_HOSTNAME && (
+              <>
+                <Text> </Text>
+                <Dot label="webmail" state={health?.webmail} />
+              </>
+            )}
             <Text> </Text>
             <Dot label="cf" state={dashboard.cloudflareConfigured ? 'running' : undefined} />
           </>

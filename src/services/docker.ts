@@ -20,7 +20,7 @@ export class DockerService {
   /**
    * `docker compose` plus -f flags for compose.yaml and whichever override files apply.
    * A plain `docker compose up` would recreate the mailserver without the inbound
-   * (PERMIT_DOCKER) and outbound (Postmark relay) settings.
+   * (PERMIT_DOCKER) and outbound (Postmark relay) settings, and drop the webmail service.
    */
   private composeArgs(): string[] {
     getAppConfig(this.projectDir); // loads .env into process.env
@@ -28,6 +28,7 @@ export class DockerService {
     const overrides: Array<[string, string]> = [
       ['inbound/compose.inbound.yaml', 'BRIDGE_SECRET'],
       ['outbound/compose.outbound.yaml', 'POSTMARK_SERVER_TOKEN'],
+      ['webmail/compose.webmail.yaml', 'WEBMAIL_HOSTNAME'],
     ];
     for (const [file, requiredVar] of overrides) {
       // These files fail interpolation without their variable, so skip them until it is set.
