@@ -1,6 +1,6 @@
 # cf-mail-tui / switchboard.llc mail — Hand-off
 
-**Date:** September 23, 2026 (updated October 2, 2026: `rcpsolutions.net` moved onto this stack, see §10)
+**Date:** September 23, 2026 (updated October 5, 2026: `rcpsolutions.net` moved onto this stack and verified in Postmark, see §10)
 **Status:** Inbound mail for `switchboard.llc` and `rcpsolutions.net` is live and has been tested from the public internet into the mailbox.
 Outbound mail is relayed through Postmark (see `outbound/README.md`); tested to Yahoo and Gmail.
 **Host:** this workstation (Docker). The home IP is not published anywhere and port 25 does not need to be reachable.
@@ -161,7 +161,7 @@ Full read-through of `src/`, the inbound/outbound pipelines, and the tests (type
 6. **Container warnings (still present 2026-10-01; left alone because the server works):** docker-mailserver warns that running Rspamd alongside Amavis/SpamAssassin/OpenDKIM/OpenDMARC
    is discouraged. It isn't a problem, but consider slimming the enabled services later.
 7. **Code-review fixes:** see §8 (2026-10-02) — items 1–2 are fixed; items 3–7 remain (next: `deleteDomainDns` alignment with the sync side).
-8. **`rcpsolutions.net` follow-ups:** see §10 (Postmark sender verification, WorkMail org retirement, `scarletmoon.org` mail, `whitetower.us`).
+8. **`rcpsolutions.net` follow-ups:** see §10 (WorkMail org retirement, `scarletmoon.org` mail, `whitetower.us`).
 
 ## 10. Domain migration and TUI domain changes — 2026-10-02
 
@@ -205,8 +205,10 @@ Full read-through of `src/`, the inbound/outbound pipelines, and the tests (type
 - Not done: Postmark sender verification and the Postmark SPF include (only needed to send as these domains).
 
 **Open follow-ups**
-1. **Postmark:** verify `rcpsolutions.net` as a sender domain (DKIM + return-path) in the Postmark dashboard; the server token in `.env` cannot do it.
-   Until then, nothing can send as `@rcpsolutions.net`. Then re-check SPF/DMARC.
+1. **DONE 2026-10-05 — Postmark sender verification for `rcpsolutions.net`.** Added in the Cloudflare zone (DNS-only): TXT `20261005165032pm._domainkey`
+   (`k=rsa;p=MIGfMA0G…`, Postmark's 1024-bit key) and CNAME `pm-bounces` → `pm.mtasv.net` (return-path). Both show verified in the Postmark dashboard, so
+   `@rcpsolutions.net` can send. SPF already has `include:spf.mtasv.net`; DMARC is still `p=none`. The Cloudflare Email Routing key `cf2024-1._domainkey` is untouched.
+   Postmark's first check said "couldn't find your DKIM record" although the record was already live on the authoritative servers; it passed on retry.
 2. **WorkMail:** the `rcpsolutions` org (m-a3c2c9ee1ab444c2acd420f2d145fc80, us-east-1) is still alive. Keep it for several days because resolvers
    that cached the old Wix nameservers can take up to ~48 h to see the change, and check its mailboxes for stragglers before deleting it (needs explicit approval).
    The `patterson-ham` org (whitetower.us) is untouched.
