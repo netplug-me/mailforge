@@ -226,6 +226,28 @@ fi
   }
 
   /**
+   * Whether Dovecot accepts this login. A new or changed account is only picked up a few
+   * seconds after `setup` returns, so callers poll this.
+   */
+  public async verifyLogin(email: string, password: string): Promise<boolean> {
+    const res = await this.docker.execAsync(['doveadm', 'auth', 'test', email, password]);
+    return /auth succeeded/.test(res.stdout);
+  }
+
+  /**
+   * Deletes a mailbox's stored mail inside the container (the files belong to the mail
+   * user, not to the host user). Only plain domain / name components are accepted.
+   */
+  public async deleteMailData(email: string): Promise<ExecResult> {
+    const [user, domain] = email.toLowerCase().split('@');
+    const plain = /^[a-z0-9][a-z0-9._+-]*$/;
+    if (!user || !domain || !plain.test(user) || !plain.test(domain) || user.includes('..') || domain.includes('..')) {
+      return { code: 1, stdout: '', stderr: `refusing to delete mail data for "${email}"`, success: false };
+    }
+    return this.docker.execAsync(['rm', '-rf', `/var/mail/${domain}/${user}`]);
+  }
+
+  /**
    * Lists all email accounts configured in DMS
    */
   public listAccounts(): MailboxAccount[] {

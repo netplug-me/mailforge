@@ -23,6 +23,11 @@ const ctx = {
       calls.push(args);
       return { code: 0, stdout: '', stderr: '', success: true };
     },
+    verifyLogin: async () => true,
+    deleteMailData: async (email) => {
+      calls.push(['rm-data', email]);
+      return { code: 0, stdout: '', stderr: '', success: true };
+    },
   },
 };
 
@@ -65,6 +70,7 @@ await test('add mailboxes: generates passwords, sets quota, skips existing', asy
     assert.match(text, /sales@a\.com\s+\S{16}/);
     assert.match(text, /support@a\.com\s+\S{16}/);
     assert.match(text, /taken@a\.com already exists/);
+    assert.match(text, /Test login accepted for 2 mailbox/);
     p.resolve();
     return text;
   });
@@ -95,19 +101,29 @@ await test('cancelling a form changes nothing', async () => {
   assert.equal(calls.length, 0);
 });
 
-await test('delete mailbox asks first', async () => {
-  const flow = flows.deleteAccountFlow(ctx, 'x@a.com');
+await test('delete mailbox: cancel, keep mail, or delete mail', async () => {
+  const cancelled = flows.deleteAccountFlow(ctx, 'x@a.com');
   await answer((p) => {
-    assert.equal(p.kind, 'confirm');
+    assert.equal(p.kind, 'form');
     assert.equal(p.danger, true);
-    p.resolve(false);
+    assert.equal(p.fields[0].initial, false);
+    p.resolve(CANCEL);
   });
-  await flow;
+  await cancelled;
   assert.equal(calls.length, 0);
-  const again = flows.deleteAccountFlow(ctx, 'x@a.com');
-  await answer((p) => p.resolve(true));
-  await again;
+
+  const kept = flows.deleteAccountFlow(ctx, 'x@a.com');
+  await answer((p) => p.resolve({ data: false }));
+  await kept;
   assert.deepEqual(calls, [['email', 'del', 'x@a.com']]);
+  assert.match(ui.getState().toast.text, /stored mail was kept/);
+
+  calls.length = 0;
+  const wiped = flows.deleteAccountFlow(ctx, 'x@a.com');
+  await answer((p) => p.resolve({ data: true }));
+  await wiped;
+  assert.deepEqual(calls, [['email', 'del', 'x@a.com'], ['rm-data', 'x@a.com']]);
+  assert.match(ui.getState().toast.text, /stored mail was deleted/);
 });
 
 await test('change password: typed vs generated', async () => {

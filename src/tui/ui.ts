@@ -264,6 +264,11 @@ class UiController {
     }
   }
 
+  /** Changes the spinner text of the task that is running. */
+  setBusy(message: string) {
+    if (this.state.busy) this.set({ busy: message });
+  }
+
   // ── output panel ───────────────────────────────────────────────────────────
 
   /** Starts a fresh output panel for a new action. Results persist until the next one. */

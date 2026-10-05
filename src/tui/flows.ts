@@ -65,6 +65,8 @@ interface Created {
   email: string;
   password: string;
   generated: boolean;
+  /** Dovecot accepted a test login with this password. */
+  verified?: boolean;
 }
 
 /** Creates the mailboxes, generating a password for each one that was not given one. */
@@ -99,6 +101,16 @@ async function createMailboxes(
   return { created, errors };
 }
 
+/** Polls until Dovecot accepts the login (it notices account changes a few seconds late). */
+async function waitForLogin(ctx: FlowContext, email: string, password: string, timeoutMs = 25000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (true) {
+    if (await ctx.dms.verifyLogin(email, password)) return true;
+    if (Date.now() >= deadline) return false;
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+}
+
 function credentialsNotice(created: Created[], errors: string[]): OutputLine[] {
   const lines: OutputLine[] = [];
   if (created.length > 0) {
@@ -108,6 +120,9 @@ function credentialsNotice(created: Created[], errors: string[]): OutputLine[] {
     for (const c of created) {
       lines.push({ kind: 'raw', text: `${c.email.padEnd(width)}  ${c.password}${c.generated ? '' : '  (the password you entered)'}` });
     }
+    const pending = created.filter((c) => c.verified === false);
+    if (created.some((c) => c.verified)) lines.push({ kind: 'success', text: `Test login accepted for ${created.filter((c) => c.verified).length} mailbox(es)` });
+    if (pending.length > 0) lines.push({ kind: 'warn', text: `Not accepting logins yet: ${pending.map((c) => c.email).join(', ')}. The server picks up new mailboxes after a few seconds.` });
   }
   for (const e of errors) lines.push({ kind: 'warn', text: e });
   if (created.length > 0) lines.push(...clientSettings());
@@ -152,9 +167,12 @@ export async function addMailboxFlow(ctx: FlowContext, preferredDomain?: string)
   if (isCancel(v)) return;
 
   const users = parseUsers(String(v.users));
-  const { created, errors } = await ui.task(`Creating ${users.length} mailbox(es)…`, () =>
-    createMailboxes(ctx, String(v.domain), users, String(v.password), String(v.quota).trim().toUpperCase())
-  );
+  const { created, errors } = await ui.task(`Creating ${users.length} mailbox(es)…`, async () => {
+    const result = await createMailboxes(ctx, String(v.domain), users, String(v.password), String(v.quota).trim().toUpperCase());
+    ui.setBusy('Waiting for the mail server to accept the new logins…');
+    await Promise.all(result.created.map(async (c) => { c.verified = await waitForLogin(ctx, c.email, c.password); }));
+    return result;
+  });
   await refreshLocal(ctx.dm);
   void refreshUsage();
   if (created.length === 0) {
@@ -165,12 +183,29 @@ export async function addMailboxFlow(ctx: FlowContext, preferredDomain?: string)
 }
 
 export async function deleteAccountFlow(ctx: FlowContext, email: string): Promise<void> {
-  const sure = await ui.confirm(`Delete the mailbox ${email}? It will stop receiving mail.`, { danger: true });
-  if (isCancel(sure) || !sure) return;
+  const v = await ui.form(`Delete ${email}`, [
+    {
+      kind: 'toggle',
+      key: 'data',
+      label: 'Delete stored mail',
+      initial: false,
+      hint: 'Off: the mailbox is removed but its mail stays on disk (re-adding the address brings it back)',
+    },
+  ], { submitLabel: 'Delete', danger: true });
+  if (isCancel(v)) return;
   const res = await ui.task(`Deleting ${email}…`, () => ctx.dms.runSetupAsync(['email', 'del', email]));
+  if (!res.success) {
+    await refreshLocal(ctx.dm);
+    ui.toast('error', `Could not delete ${email}: ${failure(res)}`);
+    return;
+  }
+  let note = 'its stored mail was kept';
+  if (v.data) {
+    const wiped = await ui.task('Deleting stored mail…', () => ctx.dms.deleteMailData(email));
+    note = wiped.success ? 'its stored mail was deleted' : `stored mail NOT deleted: ${failure(wiped)}`;
+  }
   await refreshLocal(ctx.dm);
-  if (res.success) ui.toast('success', `Deleted ${email}`);
-  else ui.toast('error', `Could not delete ${email}: ${failure(res)}`);
+  ui.toast(v.data && note.startsWith('stored mail NOT') ? 'warn' : 'success', `Deleted ${email}; ${note}`);
 }
 
 export async function resetPasswordFlow(ctx: FlowContext, email: string): Promise<void> {
@@ -195,11 +230,15 @@ export async function resetPasswordFlow(ctx: FlowContext, email: string): Promis
     ui.toast('error', `Could not change the password: ${failure(res)}`);
     return;
   }
-  if (given) ui.toast('success', `Password for ${email} changed`);
+  const verified = await ui.task('Waiting for the mail server to accept the new password…', () => waitForLogin(ctx, email, password));
+  if (given) ui.toast(verified ? 'success' : 'warn', verified ? `Password for ${email} changed` : `Password for ${email} changed; the server has not picked it up yet`);
   else {
     await ui.notice('Password changed', [
       { kind: 'success', text: `New password for ${email}` },
       { kind: 'raw', text: password },
+      verified
+        ? { kind: 'success', text: 'Test login accepted.' }
+        : { kind: 'warn', text: 'Not accepted yet; the server picks changes up after a few seconds.' },
       { kind: 'info', text: 'Shown once; it is not stored anywhere.' },
     ]);
   }
