@@ -1,6 +1,6 @@
 # cf-mail-tui / switchboard.llc mail — Hand-off
 
-**Date:** September 23, 2026 (updated October 5, 2026: `rcpsolutions.net`, `netplug.org`, `clank.pub`, `pinpoint.host` verified in Postmark, see §10)
+**Date:** September 23, 2026 (updated October 5, 2026: `rcpsolutions.net`, `netplug.org`, `clank.pub`, `pinpoint.host`, `scarletmoon.org` verified in Postmark, see §10)
 **Status:** Inbound mail for `switchboard.llc` and `rcpsolutions.net` is live and has been tested from the public internet into the mailbox.
 Outbound mail is relayed through Postmark (see `outbound/README.md`); tested to Yahoo and Gmail.
 **Host:** this workstation (Docker). The home IP is not published anywhere and port 25 does not need to be reachable.
@@ -204,11 +204,11 @@ Full read-through of `src/`, the inbound/outbound pipelines, and the tests (type
   Note: Cloudflare's edge returns `403 error code: 1010` for the default Python `urllib` user-agent, so send a `curl/...` user-agent when scripting this test.
 - Postmark sender verification: **`netplug.org` DONE 2026-10-05** (see "Postmark sender verification" below); `pinpoint.host` **DONE 2026-10-05** too (same section).
 
-**Postmark sender verification — netplug.org, clank.pub, pinpoint.host — 2026-10-05** (all show verified in Postmark)
+**Postmark sender verification — netplug.org, clank.pub, pinpoint.host, scarletmoon.org — 2026-10-05** (all show verified in Postmark)
 - Each zone got, DNS-only: TXT `<selector>pm._domainkey` (Postmark 1024-bit key) and CNAME `pm-bounces` → `pm.mtasv.net` (return-path).
-  `netplug.org` selector `20261005171320pm`; `clank.pub` selector `20261005171719pm`; `pinpoint.host` selector `20261005171907pm`.
+  `netplug.org` selector `20261005171320pm`; `clank.pub` selector `20261005171719pm`; `pinpoint.host` selector `20261005171907pm`; `scarletmoon.org` selector `20261005172119pm`.
 - SPF now includes `spf.mtasv.net`: `netplug.org` → `v=spf1 include:spf.mtasv.net include:_spf.mx.cloudflare.net ~all`;
-  `clank.pub` → `v=spf1 mx include:spf.mtasv.net ~all`; `pinpoint.host` → same as `netplug.org`. DMARC unchanged (`p=none`; `pinpoint.host` keeps its `p=quarantine`). `cf2024-1._domainkey` (netplug.org, pinpoint.host) and `mail._domainkey` (clank.pub) untouched; pinpoint.host's proxied A/CNAME records untouched.
+  `clank.pub` → `v=spf1 mx include:spf.mtasv.net ~all`; `pinpoint.host` → same as `netplug.org`; `scarletmoon.org` → same as `clank.pub`. DMARC unchanged (`p=none`; `pinpoint.host` keeps its `p=quarantine`). `cf2024-1._domainkey` (netplug.org, pinpoint.host) and `mail._domainkey` (clank.pub, scarletmoon.org) untouched; pinpoint.host's proxied A/CNAME records untouched.
 - Scripting note: an authoritative `dig` against the zone was denied by the permission classifier; records were confirmed through the Cloudflare API and Postmark's own check.
 
 **Open follow-ups**
