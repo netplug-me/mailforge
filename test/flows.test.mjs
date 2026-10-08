@@ -6,7 +6,7 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 
 // Keep the flows' post-action refresh away from the real project.
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mailctl-flows-'));
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mailforge-flows-'));
 process.env.DMS_PROJECT_DIR = tmp;
 delete process.env.CF_API_TOKEN;
 delete process.env.CLOUDFLARE_API_TOKEN;

@@ -21,7 +21,7 @@
 
 ## ✨ Features
 
-### 🖥️ Interactive TUI (`mailctl`)
+### 🖥️ Interactive TUI (`mailforge`)
 Built on [Ink](https://github.com/vadimdemedes/ink) — three powerful screens at your fingertips:
 
 | Screen | What it does |
@@ -33,7 +33,7 @@ Built on [Ink](https://github.com/vadimdemedes/ink) — three powerful screens a
 Every action is one dialog with all its fields. Results appear as toasts or dialogs. The status bar always shows container, bridge/tunnel/relay, Cloudflare, and certificate days left.
 
 ### 🌍 Webmail (optional)
-Roundcube overlay attached to `mailctl`'s compose commands when `WEBMAIL_HOSTNAME` is set. IMAPS 993 + authenticated submission 587 only. Published through Cloudflare Tunnel behind Access policy — never exposed on the host.
+Roundcube overlay attached to `mailforge`'s compose commands when `WEBMAIL_HOSTNAME` is set. IMAPS 993 + authenticated submission 587 only. Published through Cloudflare Tunnel behind Access policy — never exposed on the host.
 
 ### ⚡ Automated Cloudflare DNS
 - **Auto zone detection** (apex + sub-domains)

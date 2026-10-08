@@ -489,7 +489,7 @@ export async function dkimFlow(ctx: FlowContext, domain: string, regenerate = fa
     lines.push({ kind: 'text', text: `DNS host   ${config.dkimSelector}._domainkey.${domain}  (TXT)` });
     lines.push({ kind: 'heading', text: 'TXT value' });
     lines.push({ kind: 'raw', text: info.dnsValue });
-    lines.push({ kind: 'info', text: `To copy without line wraps: ./mailctl dkim ${domain}` });
+    lines.push({ kind: 'info', text: `To copy without line wraps: ./mailforge dkim ${domain}` });
   }
   await ui.notice(`DKIM · ${domain}`, lines);
 }

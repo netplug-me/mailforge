@@ -213,5 +213,5 @@ if not DRY:
     tok = call('GET', f'/accounts/{ACCT}/cfd_tunnel/{tid}/token')
     set_env_value(ENV_PATH, 'CF_TUNNEL_TOKEN', tok)
     print('CF_TUNNEL_TOKEN written to .env')
-    print('\nNext: apply the stack with ./mailctl (Start), or docker compose with every overlay file that exists:\n'
+    print('\nNext: apply the stack with ./mailforge (Start), or docker compose with every overlay file that exists:\n'
           '  -f compose.yaml -f inbound/compose.inbound.yaml -f outbound/compose.outbound.yaml -f webmail/compose.webmail.yaml')

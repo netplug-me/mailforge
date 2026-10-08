@@ -266,10 +266,10 @@ export class OpsService {
     const msg = [
       `From: ${from}`,
       `To: ${to}`,
-      `Subject: mailctl test ${new Date().toISOString()}`,
+      `Subject: mailforge test ${new Date().toISOString()}`,
       'Content-Type: text/plain; charset=utf-8',
       '',
-      'Test message sent from the mailctl TUI.',
+      'Test message sent from the mailforge TUI.',
       '',
     ].join('\n');
     return this.run(['sendmail', '-t', '-f', from], msg);

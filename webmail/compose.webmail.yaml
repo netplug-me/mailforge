@@ -1,4 +1,4 @@
-# Roundcube webmail for the mail server. Attached by mailctl only when WEBMAIL_HOSTNAME is
+# Roundcube webmail for the mail server. Attached by mailforge only when WEBMAIL_HOSTNAME is
 # set in .env. From the project directory:
 #
 #   docker compose -f compose.yaml -f inbound/compose.inbound.yaml -f outbound/compose.outbound.yaml \

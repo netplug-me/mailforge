@@ -120,7 +120,7 @@ export function StatusBar({
   return (
     <Box width={columns} justifyContent="space-between">
       <Text wrap="truncate">
-        <Gradient text="✉ mailctl" />
+        <Gradient text="✉ mailforge" />
         <Text dimColor> {config.primaryDomain}</Text>
         <Text>  </Text>
         <Dot label="mail" state={containerState(dashboard.containerStatus)} />

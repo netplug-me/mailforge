@@ -10,7 +10,7 @@ docker-mailserver relays everything it sends from `@switchboard.llc` through Pos
 3. SPF must include Postmark. With the token set, `python3 inbound/setup_cloudflare.py --dry-run`
    shows the SPF change (adds `include:spf.mtasv.net`); run it again without `--dry-run` to apply.
 4. `docker compose -f compose.yaml -f inbound/compose.inbound.yaml -f outbound/compose.outbound.yaml up -d`
-   (`mailctl` / the TUI add these `-f` flags automatically, based on which files and `.env` variables exist.)
+   (`mailforge` / the TUI add these `-f` flags automatically, based on which files and `.env` variables exist.)
 5. Send a test: `docker exec -i mailserver sendmail -t -f you@switchboard.llc` with From/To/Subject headers
    on stdin, then `docker exec mailserver grep status= /var/log/mail/mail.log | tail`. Look for `status=sent` from
    `relay=smtp.postmarkapp.com`.

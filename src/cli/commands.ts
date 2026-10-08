@@ -336,7 +336,7 @@ export function registerCommands(program: Command): void {
   // 8. TUI command
   program
     .command('tui')
-    .description('Launch the interactive Terminal User Interface (mailctl)')
+    .description('Launch the interactive Terminal User Interface (mailforge)')
     .action(async () => {
       await startTui();
     });
