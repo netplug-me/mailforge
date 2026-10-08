@@ -6,7 +6,7 @@
  # # #  "mm"#  mm#mm    "mm    #    "#m#"   #     "#m"#  "#mm" 
                                                    m  #        
                                                     ""
-v0.0.1.pre-release - under development
+v0.0.1.pre-release - under development - more stack plugs coming!
 ```
 
 # 🔥 mailforge
