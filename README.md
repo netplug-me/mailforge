@@ -24,7 +24,7 @@ Replaces fragmented bash scripts (`list-domains.sh`, `add-domain.sh`, `remove-do
     bridge / tunnel / relay, Cloudflare and certificate days left.
 - **Webmail (optional)**: a Roundcube overlay in `webmail/compose.webmail.yaml`, attached to `mailctl`'s compose commands when
   `WEBMAIL_HOSTNAME` is set in `.env`. It uses IMAPS 993 and authenticated submission 587 only. Publish it through the Cloudflare
-  Tunnel behind a Cloudflare Access policy (see `HAND_OFF.md` §12); it is not exposed on the host.
+  Tunnel behind a Cloudflare Access policy; it is not exposed on the host.
 - **Automated Cloudflare DNS Management**:
   - Automatic zone detection (apex and sub-domains).
   - Automatically provisions or updates MX, SPF (`v=spf1`), DKIM (`mail._domainkey`), and DMARC (`_dmarc`) records.
@@ -153,3 +153,56 @@ src/
     ├── ui.ts              # State store and prompt bridge (select, text, confirm, form, notice, toast)
     └── theme.ts           # Palette, truncate/fit helpers, password generator
 ```
+
+---
+
+## Sub-systems
+
+Three related components handle mail delivery beyond the mailserver itself. Each has its own README and setup scripts.
+
+| Component | Purpose | Key files |
+|---|---|---|
+| **AWS proxy box** (`aws-proxy/`) | Gives mail clients remote IMAP/SMTP (993/465/587) over a WARP private-network route — nothing installed on the client. HAProxy on a small AWS box forwards TCP to the mailserver through Cloudflare Tunnel with PROXY protocol v2, so the mailserver sees real client IPs. TLS passthrough means the existing Let's Encrypt cert matches unchanged. | `provision.sh` (AWS CLI scaffold), `user-data.sh`, `haproxy.cfg`, `setup_zero_trust.py`, `dms/` |
+| **Inbound mail** (`inbound/`) | Receives mail without exposing a public IP or opening port 25. Cloudflare Email Routing (MX) → Email Worker (HMAC-signed HTTPS POST) → bridge (verifies + SMTP handoff) → docker-mailserver. | `worker/worker.js`, `bridge/server.mjs`, `compose.inbound.yaml`, `setup_cloudflare.py` |
+| **Outbound relay** (`outbound/`) | Relays all outbound mail through Postmark's SMTP (`smtp.postmarkapp.com:587`, STARTTLS) for deliverability. Applied per-sender-domain via `relayhost_map`. | `compose.outbound.yaml` |
+
+### AWS proxy box
+
+Scaffold an AWS box (t3.micro + Elastic IP) that proxies IMAP/SMTP to the mailserver over WARP:
+
+```bash
+# 1. Zero Trust setup (idempotent, --dry-run first)
+python3 aws-proxy/setup_zero_trust.py --dry-run
+python3 aws-proxy/setup_zero_trust.py
+
+# 2. Provision the box (prints plan by default)
+REGION=<region> MY_IP=<your-ip> ./aws-proxy/provision.sh
+REGION=<region> MY_IP=<your-ip> ./aws-proxy/provision.sh --apply
+
+# 3-6. Enrol WARP, connect, reachability test, open-relay test — see aws-proxy/README.md
+# 7. Point DNS at the Elastic IP
+echo "MAIL_PUBLIC_IP=<eip>" >> .env
+python3 inbound/setup_cloudflare.py
+```
+
+See [`aws-proxy/README.md`](aws-proxy/README.md) for the full runbook, security rules (never proxy port 25/143, fail2ban blind spot, mandatory open-relay test), and teardown steps.
+
+### Inbound mail (no public IP)
+
+```bash
+python3 inbound/setup_cloudflare.py --dry-run   # creates tunnel, Worker, Email Routing catch-all
+python3 inbound/setup_cloudflare.py             # writes CF_TUNNEL_TOKEN to .env
+docker compose -f compose.yaml -f inbound/compose.inbound.yaml up -d
+```
+
+See [`inbound/README.md`](inbound/README.md).
+
+### Outbound relay (Postmark)
+
+```bash
+# Add POSTMARK_SERVER_TOKEN to .env, then:
+python3 inbound/setup_cloudflare.py             # adds include:spf.mtasv.net to SPF
+docker compose -f compose.yaml -f inbound/compose.inbound.yaml -f outbound/compose.outbound.yaml up -d
+```
+
+See [`outbound/README.md`](outbound/README.md).
