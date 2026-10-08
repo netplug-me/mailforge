@@ -1,57 +1,80 @@
-# cf-mail-tui (mailctl)
+```
+  __  __       _ _   ___
+ |  \/  | __ _| | | / __|_ _  ___ ___  _ __ ___
+ | |\/| |/ _` | | || |_ | '_/ _ \/ _ \ '_ ` _ \
+ | |  | | (_| | | ||  _|| |  __/  __/ | | | | | |
+ |_|  |_|\__,_|_|_||_|  |_|___|\___|_| |_| |_| |_|
 
-A TypeScript CLI and Interactive Terminal User Interface (TUI) for managing **Docker Mailserver (DMS)** with automated **Cloudflare DNS** synchronization (MX, SPF, DKIM, and DMARC).
+```
 
-Replaces fragmented bash scripts (`list-domains.sh`, `add-domain.sh`, `remove-domain.sh`, `mailctl`) with a single typed, self-contained TypeScript solution.
+# 🔥 mailforge
 
----
+> **Full-stack mail server orchestrator.** Docker Mailserver + Cloudflare DNS + AWS proxy + inbound routing + Postmark relay — all from one typed, self-contained TypeScript CLI and interactive TUI.
 
-## Features
-
-- **Interactive TUI (`mailctl`)**, built on [Ink](https://github.com/vadimdemedes/ink) as three screens:
-  - **Mailboxes** (the home screen): every mailbox and alias grouped by domain, with live quota bars from Dovecot.
-    Add several mailboxes in one dialog (generated passwords are shown once), change a password, set or remove a
-    quota, add or delete forwarders, and filter by domain. The side panel shows the mail-app settings for the
-    selected mailbox (and the webmail URL when `WEBMAIL_HOSTNAME` is set).
-  - **Domains**: health matrix (mailboxes, DKIM, live MX / SPF / DKIM / DMARC), the found-vs-expected DNS detail for the
-    selected domain, and the Cloudflare zone list. Add or remove a domain, publish DNS, view or regenerate DKIM.
-  - **Tools**: mail queue (retry / purge deferred), colour-coded delivery log, mailbox quota bars,
-    connected IMAP clients, fail2ban bans + unban, TLS certificate countdown, inbound/outbound path check,
-    Postmark 7-day stats and recent bounces (needs `POSTMARK_SERVER_TOKEN`), a send-test-email action and
-    container start / stop / logs.
-  - Every action is one dialog with all its fields, not a chain of prompts; results appear as a toast or, when you
-    need to read or copy something (passwords, DKIM value), a dialog. The status bar always shows container,
-    bridge / tunnel / relay, Cloudflare and certificate days left.
-- **Webmail (optional)**: a Roundcube overlay in `webmail/compose.webmail.yaml`, attached to `mailctl`'s compose commands when
-  `WEBMAIL_HOSTNAME` is set in `.env`. It uses IMAPS 993 and authenticated submission 587 only. Publish it through the Cloudflare
-  Tunnel behind a Cloudflare Access policy; it is not exposed on the host.
-- **Automated Cloudflare DNS Management**:
-  - Automatic zone detection (apex and sub-domains).
-  - Automatically provisions or updates MX, SPF (`v=spf1`), DKIM (`mail._domainkey`), and DMARC (`_dmarc`) records.
-  - Automatic DNS record cleanup upon domain removal.
-- **Docker Mailserver Integration**:
-  - Scaffolds `compose.yaml`, `mailserver.env`, directory hierarchy, and `setup.sh`.
-  - Manages `POSTFIX_VIRTUAL_DOMAINS` in `mailserver.env`.
-  - 2048-bit DKIM key generation via OpenDKIM/Rspamd with automatic public key extraction for DNS TXT records.
-  - Mailbox accounts, password hashing, forwarders/aliases, and quota configuration.
-- **Live DNS Diagnostics**:
-  - Direct asynchronous DNS queries (`node:dns/promises`) validating published records against expected mailserver configurations.
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Node](https://img.shields.io/badge/Node-20+-green?logo=node.js&logoColor=white)](https://nodejs.org/)
+[![Docker](https://img.shields.io/badge/Docker-Mailserver-blue?logo=docker&logoColor=white)](https://docker-mailserver.github.io/docker-mailserver/)
+[![Cloudflare](https://img.shields.io/badge/Cloudflare-DNS-orange?logo=cloudflare&logoColor=white)](https://www.cloudflare.com/)
+[![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
 
 ---
 
-## Quick Start
+## ✨ Features
+
+### 🖥️ Interactive TUI (`mailctl`)
+Built on [Ink](https://github.com/vadimdemedes/ink) — three powerful screens at your fingertips:
+
+| Screen | What it does |
+|---|---|
+| **📬 Mailboxes** | Every mailbox & alias grouped by domain, live quota bars, add/remove/change passwords, forwarders, filter by domain. Side panel shows mail-app settings + webmail URL. |
+| **🌐 Domains** | Health matrix (mailboxes, DKIM, live MX/SPF/DKIM/DMARC), found-vs-expected DNS detail, Cloudflare zone list. Add/remove domain, publish DNS, regenerate DKIM. |
+| **🔧 Tools** | Mail queue (retry/purge deferred), delivery log, quota bars, IMAP clients, fail2ban bans + unban, TLS cert countdown, inbound/outbound check, Postmark stats, send-test-email, container start/stop/logs. |
+
+Every action is one dialog with all its fields. Results appear as toasts or dialogs. The status bar always shows container, bridge/tunnel/relay, Cloudflare, and certificate days left.
+
+### 🌍 Webmail (optional)
+Roundcube overlay attached to `mailctl`'s compose commands when `WEBMAIL_HOSTNAME` is set. IMAPS 993 + authenticated submission 587 only. Published through Cloudflare Tunnel behind Access policy — never exposed on the host.
+
+### ⚡ Automated Cloudflare DNS
+- **Auto zone detection** (apex + sub-domains)
+- **Auto provisions** MX, SPF (`v=spf1`), DKIM (`mail._domainkey`), DMARC (`_dmarc`)
+- **Auto cleanup** on domain removal
+
+### 🐳 Docker Mailserver Integration
+- Scaffolds `compose.yaml`, `mailserver.env`, directory hierarchy, `setup.sh`
+- Manages `POSTFIX_VIRTUAL_DOMAINS` in `mailserver.env`
+- 2048-bit DKIM key generation via OpenDKIM/Rspamd with automatic public key extraction
+- Mailbox accounts, password hashing, forwarders/aliases, quota configuration
+
+### 🔍 Live DNS Diagnostics
+Direct async DNS queries (`node:dns/promises`) validating published records against expected mailserver configuration.
+
+---
+
+## 📦 Sub-systems
+
+Three related components handle mail delivery beyond the mailserver itself:
+
+| Component | Purpose | Key files |
+|---|---|---|
+| **☁️ AWS proxy box** (`aws-proxy/`) | Remote IMAP/SMTP (993/465/587) over WARP — nothing installed on client. HAProxy TCP passthrough + PROXY protocol v2. TLS passthrough keeps existing Let's Encrypt cert valid. | `provision.sh`, `user-data.sh`, `haproxy.cfg`, `setup_zero_trust.py`, `dms/` |
+| **📥 Inbound mail** (`inbound/`) | Receive mail without public IP or port 25. Cloudflare Email Routing → Email Worker (HMAC-signed) → bridge → SMTP to mailserver. | `worker/worker.js`, `bridge/server.mjs`, `compose.inbound.yaml`, `setup_cloudflare.py` |
+| **📤 Outbound relay** (`outbound/`) | Relay all outbound mail through Postmark (`smtp.postmarkapp.com:587`, STARTTLS) for deliverability. Per-sender-domain via `relayhost_map`. | `compose.outbound.yaml` |
+
+---
+
+## 🚀 Quick Start
 
 ### 1. Install & Build
 
 ```bash
-cd /home/lham/dev/cf-mail-tui
+git clone https://github.com/netplug-me/cf-mail-tui.git mailforge
+cd mailforge
 npm install
 npm run build
 ```
 
 ### 2. Configure Environment
-
-Copy `.env.example` to `.env`:
 
 ```bash
 cp .env.example .env
@@ -66,64 +89,111 @@ DKIM_SELECTOR=mail
 CF_API_TOKEN=your_cloudflare_api_token
 ```
 
-> **Note on Cloudflare Token**: Needs `Zone:DNS:Edit` and `Zone:Zone:Read` permissions.
+> **Cloudflare Token**: Needs `Zone:DNS:Edit` and `Zone:Zone:Read` permissions.
 
 ---
 
-## Usage
+## 🎮 Usage
 
-### Interactive TUI Mode
-
-Launch the full interactive TUI by running without arguments or via the `mailctl` wrapper:
+### Interactive TUI
 
 ```bash
-./mailctl
+./mailforge
 # or
 npm start
 # or
 node dist/index.js
 ```
 
-Keys: `1` `2` `3` or `tab` switch screens, `↑↓` move, `enter` opens the actions for the selected row,
-`r` refreshes, `esc` cancels a dialog, `ctrl+c` quits. Each screen shows its own shortcuts in the footer.
-Press `a` to add (a mailbox or a domain), `d` / `x` to delete, `p` for a password, `q` for a quota, `f` to filter by domain.
+**Keys**: `1` `2` `3` / `tab` switch screens · `↑↓` move · `enter` actions · `r` refresh · `esc` cancel · `ctrl+c` quit
 
 ### CLI Commands
 
 ```bash
-# 1. Initialize / Scaffold project structure & compose.yaml
-cf-mail init [path] --domain example.com --mx mail.example.com
+# Initialize / Scaffold project structure
+mailforge init [path] --domain example.com --mx mail.example.com
 
-# 2. List all domains and their live DNS health
-cf-mail list
-cf-mail list --no-dns
+# List all domains and their live DNS health
+mailforge list
+mailforge list --no-dns
 
-# 3. Add a virtual domain (with optional accounts, quota, and Cloudflare DNS sync)
-cf-mail add shop.example.com sales support --quota 1G --dns
+# Add a virtual domain (with accounts, quota, DNS sync)
+mailforge add shop.example.com sales support --quota 1G --dns
 
-# 4. Remove a virtual domain
-cf-mail remove shop.example.com --yes --data --dns
+# Remove a virtual domain
+mailforge remove shop.example.com --yes --data --dns
 
-# 5. Inspect or regenerate DKIM keys
-cf-mail dkim shop.example.com
-cf-mail dkim shop.example.com --generate
+# Inspect or regenerate DKIM keys
+mailforge dkim shop.example.com
+mailforge dkim shop.example.com --generate
 
-# 6. Live DNS health checks
-cf-mail dns check shop.example.com
+# Live DNS health checks
+mailforge dns check shop.example.com
 
-# 7. Push / Sync DNS records to Cloudflare
-cf-mail dns sync shop.example.com
+# Push / Sync DNS records to Cloudflare
+mailforge dns sync shop.example.com
 
-# 8. Manage Docker Mailserver container
-cf-mail docker status
-cf-mail docker up
-cf-mail docker down
-cf-mail docker logs
+# Manage Docker Mailserver container
+mailforge docker status
+mailforge docker up
+mailforge docker down
+mailforge docker logs
 ```
 
 ---
 
-## Architecture
+## ☁️ AWS Proxy Box
+
+Scaffold an AWS box (t3.micro + Elastic IP) that proxies IMAP/SMTP to the mailserver over WARP:
+
+```
+mail client ─993/465/587─▶ AWS box (HAProxy, TLS passthrough)
+                              │ WARP (service-token enrolment)
+                              ▼
+                      Cloudflare ─▶ tunnel (warp-routing) ─▶ mailserver
+```
+
+```bash
+# 1. Zero Trust setup (idempotent)
+python3 aws-proxy/setup_zero_trust.py --dry-run
+python3 aws-proxy/setup_zero_trust.py
+
+# 2. Provision the box (prints plan by default)
+REGION=<region> MY_IP=<your-ip> ./aws-proxy/provision.sh
+REGION=<region> MY_IP=<your-ip> ./aws-proxy/provision.sh --apply
+
+# 3-7. Enrol WARP, connect, reachability, open-relay test, DNS — see aws-proxy/README.md
+```
+
+> See [`aws-proxy/README.md`](aws-proxy/README.md) for the full runbook, security rules, and teardown.
+
+---
+
+## 📥 Inbound Mail (No Public IP)
+
+```bash
+python3 inbound/setup_cloudflare.py --dry-run
+python3 inbound/setup_cloudflare.py
+docker compose -f compose.yaml -f inbound/compose.inbound.yaml up -d
+```
+
+> See [`inbound/README.md`](inbound/README.md).
+
+---
+
+## 📤 Outbound Relay (Postmark)
+
+```bash
+# Add POSTMARK_SERVER_TOKEN to .env, then:
+python3 inbound/setup_cloudflare.py
+docker compose -f compose.yaml -f inbound/compose.inbound.yaml -f outbound/compose.outbound.yaml up -d
+```
+
+> See [`outbound/README.md`](outbound/README.md).
+
+---
+
+## 🏗️ Architecture
 
 ```
 src/
@@ -156,53 +226,21 @@ src/
 
 ---
 
-## Sub-systems
+## 🔑 Required Environment Variables
 
-Three related components handle mail delivery beyond the mailserver itself. Each has its own README and setup scripts.
+| Variable | Purpose |
+|---|---|
+| `PRIMARY_DOMAIN` | Your primary mail domain |
+| `MX_HOST` | Mail server hostname (e.g. `mail.example.com`) |
+| `DKIM_SELECTOR` | DKIM selector (default: `mail`) |
+| `CF_API_TOKEN` | Cloudflare API token (`Zone:DNS:Edit`, `Zone:Zone:Read`) |
+| `POSTMARK_SERVER_TOKEN` | (Optional) Postmark server token for outbound relay |
+| `WEBMAIL_HOSTNAME` | (Optional) Enables Roundcube webmail overlay |
+| `BRIDGE_SECRET` | (Optional) 64-char HMAC secret for inbound bridge |
+| `MAIL_PUBLIC_IP` | (Optional) Elastic IP for AWS proxy box |
 
-| Component | Purpose | Key files |
-|---|---|---|
-| **AWS proxy box** (`aws-proxy/`) | Gives mail clients remote IMAP/SMTP (993/465/587) over a WARP private-network route — nothing installed on the client. HAProxy on a small AWS box forwards TCP to the mailserver through Cloudflare Tunnel with PROXY protocol v2, so the mailserver sees real client IPs. TLS passthrough means the existing Let's Encrypt cert matches unchanged. | `provision.sh` (AWS CLI scaffold), `user-data.sh`, `haproxy.cfg`, `setup_zero_trust.py`, `dms/` |
-| **Inbound mail** (`inbound/`) | Receives mail without exposing a public IP or opening port 25. Cloudflare Email Routing (MX) → Email Worker (HMAC-signed HTTPS POST) → bridge (verifies + SMTP handoff) → docker-mailserver. | `worker/worker.js`, `bridge/server.mjs`, `compose.inbound.yaml`, `setup_cloudflare.py` |
-| **Outbound relay** (`outbound/`) | Relays all outbound mail through Postmark's SMTP (`smtp.postmarkapp.com:587`, STARTTLS) for deliverability. Applied per-sender-domain via `relayhost_map`. | `compose.outbound.yaml` |
+---
 
-### AWS proxy box
+## 📄 License
 
-Scaffold an AWS box (t3.micro + Elastic IP) that proxies IMAP/SMTP to the mailserver over WARP:
-
-```bash
-# 1. Zero Trust setup (idempotent, --dry-run first)
-python3 aws-proxy/setup_zero_trust.py --dry-run
-python3 aws-proxy/setup_zero_trust.py
-
-# 2. Provision the box (prints plan by default)
-REGION=<region> MY_IP=<your-ip> ./aws-proxy/provision.sh
-REGION=<region> MY_IP=<your-ip> ./aws-proxy/provision.sh --apply
-
-# 3-6. Enrol WARP, connect, reachability test, open-relay test — see aws-proxy/README.md
-# 7. Point DNS at the Elastic IP
-echo "MAIL_PUBLIC_IP=<eip>" >> .env
-python3 inbound/setup_cloudflare.py
-```
-
-See [`aws-proxy/README.md`](aws-proxy/README.md) for the full runbook, security rules (never proxy port 25/143, fail2ban blind spot, mandatory open-relay test), and teardown steps.
-
-### Inbound mail (no public IP)
-
-```bash
-python3 inbound/setup_cloudflare.py --dry-run   # creates tunnel, Worker, Email Routing catch-all
-python3 inbound/setup_cloudflare.py             # writes CF_TUNNEL_TOKEN to .env
-docker compose -f compose.yaml -f inbound/compose.inbound.yaml up -d
-```
-
-See [`inbound/README.md`](inbound/README.md).
-
-### Outbound relay (Postmark)
-
-```bash
-# Add POSTMARK_SERVER_TOKEN to .env, then:
-python3 inbound/setup_cloudflare.py             # adds include:spf.mtasv.net to SPF
-docker compose -f compose.yaml -f inbound/compose.inbound.yaml -f outbound/compose.outbound.yaml up -d
-```
-
-See [`outbound/README.md`](outbound/README.md).
+MIT © [RCP Solutions](https://rcpsolutions.net)

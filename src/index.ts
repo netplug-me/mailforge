@@ -7,7 +7,7 @@ import { startTui } from './tui/app.js';
 const program = new Command();
 
 program
-  .name('cf-mail')
+  .name('mailforge')
   .description('Docker Mailserver & Cloudflare DNS Manager with Interactive TUI')
   .version('1.0.0');
 
