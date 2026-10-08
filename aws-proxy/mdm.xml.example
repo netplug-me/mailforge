@@ -1,0 +1,18 @@
+<!-- Copy to /var/lib/cloudflare-warp/mdm.xml on the proxy box (root, mode 600), filled in by hand.
+     Never commit the real file. Fields per Cloudflare's WARP managed-deployment parameters docs.
+     auto_connect=0: enrol but stay disconnected until you run `warp-cli connect` yourself,
+     so a wrong split-tunnel profile cannot cut your SSH session. -->
+<dict>
+  <key>organization</key>
+  <string>YOUR-TEAM-NAME</string>
+  <key>auth_client_id</key>
+  <string>XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX.access</string>
+  <key>auth_client_secret</key>
+  <string>SERVICE-TOKEN-CLIENT-SECRET</string>
+  <key>service_mode</key>
+  <string>warp</string>
+  <key>auto_connect</key>
+  <integer>0</integer>
+  <key>onboarding</key>
+  <false/>
+</dict>

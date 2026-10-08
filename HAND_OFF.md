@@ -19,6 +19,11 @@ Sender ─SMTP─▶ Cloudflare Email Routing (MX: route{1,2,3}.mx.cloudflare.ne
             mail-ingest.switchboard.llc  (proxied CNAME → Cloudflare Tunnel)
                    │
    Docker network: cloudflared ─▶ inbound-bridge:8025 ─SMTP─▶ mailserver:25 (docker-mailserver)
+
+Client ─IMAPS/SMTPS─▶ mail.switchboard.llc:993/465/587 (proxied CNAME → Cloudflare Tunnel)
+                   │ TCP tunnel rules for IMAP 993, SMTPS 465, Submission 587
+                   ▼
+   Docker network: cloudflared ─TCP─▶ mailserver:993/465/587 (docker-mailserver)
 ```
 
 - The message is passed through byte-for-byte, so the sender's DKIM signatures stay valid.
@@ -133,26 +138,37 @@ Full read-through of `src/`, the inbound/outbound pipelines, and the tests (type
    **Verified 2026-10-01:** a relayed test to Gmail landed in the inbox with `dkim=pass` (`d=switchboard.llc`, selector
    `20261002040946pm`, plus Postmark's own `pm.mtasv.net`), `spf=pass` via `pm-bounces.switchboard.llc`, and `dmarc=pass`.
    Remaining: consider DMARC `p=quarantine` after a week or two of clean reports.
-3. **Remote client access:** NOT DONE — needs Zero Trust permissions the API token doesn't list, plus a WARP client on each device.
-   Runbook (do it in the Cloudflare dashboard, Zero Trust):
-   1. Settings → WARP Client → enable device enrolment; add a device-enrolment policy for your email.
-   2. Networks → Tunnels → `switchboard-llc-inbound` → Private networks: route the Docker subnet of this compose project
-      (`docker network inspect cf-mail-tui_default`) through the tunnel. Remove that CIDR from the Split Tunnels *exclude* list
-      (or switch to "include" mode) so WARP sends it through.
-   2b. **Pin the addresses first.** WARP routes a fixed CIDR and clients point at a fixed IP, but `compose down` (a TUI menu item)
-      removes the default network and the next `up` may pick a different subnet. In `compose.yaml` add a `networks:` block with
-      `ipam.config.subnet` (e.g. `172.28.0.0/24`) and give `mailserver` a fixed `ipv4_address` (e.g. `172.28.0.10`);
-      then route exactly that CIDR in step 2.
-   3. Install WARP on the phone/laptop, enrol, then point the mail client at the mailserver's container IP
-      (or add a Local DNS / hosts entry `mail.switchboard.llc` → container IP) on ports **993** (IMAPS) and **587/465** (submission).
+3. **Remote client access:** IN PROGRESS (2026-10-08). Design: AWS proxy box (HAProxy TCP passthrough on 993/465/587) →
+   WARP (headless, service token) → tunnel private route `172.25.0.10/32` → mailserver. Clients need no agent. Runbook and
+   scripts: `aws-proxy/README.md` (provision.sh is dry-run by default; nothing has been created on AWS yet).
+   Earlier dead ends, removed: public-hostname `tcp://` ingress rules (one hostname per port needed anyway, and clients
+   would need `cloudflared access tcp`), per-client WARP, and a Tailscale idea.
+   - **Done (live):** `compose.yaml` pins network `172.25.0.0/16` + mailserver `172.25.0.10`; cloudflared pinned at
+     `172.25.0.11` (`compose.inbound.yaml`) and added to fail2ban `ignoreip` (loaded in the running container);
+     `setup_cloudflare.py` set `warp-routing` on the tunnel and created the `172.25.0.10/32` route; the old proxied `mail.`
+     CNAME is deleted, so **`mail.switchboard.llc` has no DNS record until runbook step 7**.
+   - **Done (Zero Trust, via `aws-proxy/setup_zero_trust.py`):** service token `mail-proxy-warp` (creds in gitignored
+     `aws-proxy/mdm.xml`), Service Auth policy on "Warp Login App", device profile for the service-token identity
+     (Include `172.25.0.10/32`), Gateway TCP proxy on, Gateway allow 993/465/587 + block-rest rules for `172.25.0.10`.
+     Left in place on purpose (owner's call, 2026-10-08): token `switchboard-token` and reusable policy
+     `sb-service-token-policy`; the policy is App Launcher's only policy (also on Warp Login App). Don't edit App Launcher.
+   - **AWS box LIVE (2026-10-08):** `i-0930027a55fdf4f6b` (t3.small, Ubuntu 24.04, us-west-1, account rcp-midway), Elastic IP
+     `50.18.195.200`, SG `mail-proxy` (SSH only from 76.127.41.236/32, 993/465/587 open), key `~/.ssh/mail-proxy.pem` on nerdland.
+     HAProxy + WARP enrolled via service token; both enabled at boot, WARP reconnects after `warp-svc` restart.
+     Verified from the box: cert chain for mail.switchboard.llc over WARP; unauthenticated RCPT rejected on 587 and 465
+     (`554 5.7.1 Client host rejected`, source 172.25.0.11); 25 and 143 give no banner (Gateway block).
+     DNS: `mail.switchboard.llc` A (DNS only) -> 50.18.195.200 (`MAIL_PUBLIC_IP` in `.env`, via `setup_cloudflare.py`);
+     public `openssl s_client -connect mail.switchboard.llc:993` verifies OK.
+   - **Confirmed working by the owner (2026-10-08).** Old instance `i-00d6de85c70fb02ec` terminated, and its leftover
+     security group `launch-wizard-7` and key pair `mailserver-key` were deleted.
+   - **Todo (optional):** PROXY protocol so fail2ban sees real client IPs (today only the HAProxy rate limit protects remote logins).
    Constraints:
-   - **Never route port 25.** `PERMIT_DOCKER=connected-networks` treats traffic arriving from cloudflared's network as trusted;
-     port 25 through the tunnel would be an open relay for anyone in the WARP org.
-   - **Tunnel config is remotely managed:** a PUT to `/cfd_tunnel/{id}/configurations` replaces the whole ingress list.
-     GET it first and keep the `mail-ingest.switchboard.llc → http://inbound-bridge:8025` rule and the final `404` catch-all;
-     then re-run the signed POST test in §7.
-   - **fail2ban:** remote clients all appear as cloudflared's container IP, so a few failed logins would ban everyone.
-     Add that IP to `fail2ban-jail.cf` `ignoreip` (or leave `ENABLE_FAIL2BAN` off for those ports).
+   - **Never route 25 or 143 to remote clients.** `PERMIT_DOCKER=connected-networks` trusts the compose network incl.
+     cloudflared. 465/587 are safe by Postfix config (`permit_sasl_authenticated,reject`), verified in `master.cf` and to be
+     re-proved by the runbook's swaks test.
+   - **fail2ban is blind for remote logins** (all arrive from cloudflared, which is ignored). Rate limits live in
+     `aws-proxy/haproxy.cfg`; PROXY protocol to dedicated ports is the better follow-up.
+   - **Tunnel config is remotely managed:** the PUT replaces everything; the script GETs and merges.
 3b. **TUI Toolbox** (`./mailctl` ▸ Toolbox): mail queue, delivery log, mailbox usage, connected clients, fail2ban, TLS expiry,
    mail-path check, Postmark stats, send-test-email. The header shows cert days left and bridge/tunnel/relay state.
 4. **More mailboxes and aliases:** use the TUI (`./mailctl`) or `docker exec mailserver setup email add …`.
@@ -249,7 +265,7 @@ Full read-through of `src/`, the inbound/outbound pipelines, and the tests (type
   Use `--no-deps`: this container was created from the old project path, so a plain `up` from here would recreate `mailserver`.
 - **How it talks to the mail server:** IMAPS 993 and authenticated submission 587 only, never port 25 (`PERMIT_DOCKER` trusts the whole compose network). It resolves `MX_HOST` to the host gateway (`extra_hosts: host-gateway`) and uses the published ports, so the Let's Encrypt name matches and certificate verification stays on (verified from inside the container with `openssl s_client`). No change to `mailserver`.
 - **Verified (throwaway mailbox, removed afterwards):** Roundcube login over IMAPS succeeds; a message composed in Roundcube is accepted by submission with SASL auth and delivered to the mailbox; behind `X-Forwarded-Proto: https` the session cookie is `Secure; HttpOnly`.
-- **fail2ban — DONE (found in place 2026-10-05):** `docker-data/dms/config/fail2ban-jail.cf` has `ignoreip = 127.0.0.1/8 172.25.0.1` and the `dovecot`, `postfix` and `custom` jails all report it live. The subnet is not pinned, so re-check it if the compose network is recreated (§9.3 item 2b). Original reasoning: the mail server sees every webmail login from the compose network's gateway `172.25.0.1`. DMS's fail2ban uses `maxretry = 6`, `bantime = 1w`, `nftables-allports`, and `ignoreip = 127.0.0.1/8` only, so six wrong passwords typed into webmail would ban `172.25.0.1` for a week (webmail and any client on this host would lose IMAP/SMTP; inbound mail through cloudflared/bridge uses container addresses and would not be affected). I tried to add an `ignoreip` entry and the permission classifier blocked it, so it was **not** done. Options: add `ignoreip = 127.0.0.1/8 172.25.0.1` in `docker-data/dms/config/fail2ban-jail.cf` (then `docker restart mailserver`, or load it live), or leave fail2ban alone and rely on Cloudflare Access to keep strangers off the login page. The subnet is `172.25.0.0/16` today and changes if the network is recreated (§9.3 item 2b).
+- **fail2ban — DONE (found in place 2026-10-05):** `docker-data/dms/config/fail2ban-jail.cf` has `ignoreip = 127.0.0.1/8 172.25.0.1` and the `dovecot`, `postfix` and `custom` jails all report it live. The subnet is now pinned in `compose.yaml` (172.25.0.0/16, gateway 172.25.0.1); cloudflared (172.25.0.11) is ignored too, see §9.3 item 3. Original reasoning: the mail server sees every webmail login from the compose network's gateway `172.25.0.1`. DMS's fail2ban uses `maxretry = 6`, `bantime = 1w`, `nftables-allports`, and `ignoreip = 127.0.0.1/8` only, so six wrong passwords typed into webmail would ban `172.25.0.1` for a week (webmail and any client on this host would lose IMAP/SMTP; inbound mail through cloudflared/bridge uses container addresses and would not be affected). I tried to add an `ignoreip` entry and the permission classifier blocked it, so it was **not** done. Options: add `ignoreip = 127.0.0.1/8 172.25.0.1` in `docker-data/dms/config/fail2ban-jail.cf` (then `docker restart mailserver`, or load it live), or leave fail2ban alone and rely on Cloudflare Access to keep strangers off the login page. The subnet is pinned in `compose.yaml`.
 - **Publishing steps (all DONE 2026-10-05; kept as the runbook for re-doing it):**
   1. Create a Cloudflare Access application + policy for the webmail hostname *first* (the token has no Access permission: either add "Access: Apps and Policies Edit" to the token, or create it in the Zero Trust dashboard).
   2. Tunnel ingress: GET the current config of tunnel `switchboard-llc-inbound`, insert `<hostname> → http://webmail:80` before the final `404` rule, keep the `mail-ingest.switchboard.llc → http://inbound-bridge:8025` rule, PUT it back, and re-run the signed POST test from §7.

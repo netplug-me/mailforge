@@ -1,6 +1,13 @@
 # Inbound mail via Cloudflare Email Routing -> Email Worker -> Tunnel -> inbound-bridge
 # -> docker-mailserver. Nothing here listens on the host, and no public IP or port 25
-# is needed. Use together with the scaffolded compose.yaml, from the project directory:
+# is needed.
+#
+# Remote IMAP/SMTP clients reach the mailserver through a WARP private-network route to its pinned
+# address (compose.yaml: 172.25.0.10) from the AWS proxy box; see aws-proxy/README.md. cloudflared is
+# pinned to 172.25.0.11 because every remote login reaches the mailserver from that address and
+# fail2ban ignores it (docker-data/dms/config/fail2ban-jail.cf).
+#
+# Use together with the scaffolded compose.yaml, from the project directory:
 #
 #   docker compose -f compose.yaml -f inbound/compose.inbound.yaml up -d
 #
@@ -34,6 +41,9 @@ services:
     command: ["tunnel", "--no-autoupdate", "run"]
     environment:
       - TUNNEL_TOKEN=${CF_TUNNEL_TOKEN:?set CF_TUNNEL_TOKEN in .env}
+    networks:
+      default:
+        ipv4_address: 172.25.0.11
     depends_on:
       - inbound-bridge
     restart: unless-stopped

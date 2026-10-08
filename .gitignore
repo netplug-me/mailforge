@@ -9,3 +9,5 @@ logs/
 postmark.api.key.*
 
 .claude/settings.local.json
+
+aws-proxy/mdm.xml
