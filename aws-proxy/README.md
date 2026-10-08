@@ -14,7 +14,13 @@ mail client ─993/465/587─▶ AWS box (Elastic IP, HAProxy mode tcp, TLS pass
 the existing Let's Encrypt cert on nerdland (renewed by DNS-01 through Cloudflare) matches unchanged.
 
 Files: `provision.sh` (aws CLI; dry run by default), `user-data.sh` (installs HAProxy + WARP),
-`haproxy.cfg`, `mdm.xml.example`.
+`haproxy.cfg`, `mdm.xml.example`, `setup_zero_trust.py`, and `dms/` (the mailserver half of the PROXY protocol
+setup: `dovecot.cf` + `user-patches.sh`, copied into `docker-data/dms/config/`; apply with
+`docker compose ... up -d --force-recreate mailserver`, because a plain `docker restart` skips DMS setup).
+
+HAProxy sends PROXY protocol v2 to **10993 / 10465 / 10587** on the mailserver (twins of 993 / 465 / 587), so the
+mailserver's logs and per-IP limits see the real client address instead of cloudflared. Plain 993/465/587 stay
+as they are for webmail and local clients, and are closed to the proxy box by the Gateway rule.
 
 ## Hard rules
 
@@ -22,12 +28,13 @@ Files: `provision.sh` (aws CLI; dry run by default), `user-data.sh` (installs HA
   includes cloudflared. Port 25 reachable through the proxy would be an open relay. (Ports 465/587 are safe by
   Postfix config: both `submission` and `submissions` set `smtpd_client_restrictions=permit_sasl_authenticated,reject`,
   so `mynetworks` does not apply. Step 6 proves it before anything is opened.)
-- **fail2ban cannot protect this path.** Every remote login reaches the mailserver from cloudflared
-  (pinned `172.25.0.11`, which fail2ban ignores; otherwise six bad passwords from anyone would ban every
-  remote client for a week). The only brute-force brake is the HAProxy connection-rate limit plus Dovecot's
-  own auth delay. Use strong mailbox passwords. Better follow-up: PROXY protocol to dedicated DMS ports
-  (e.g. 10993/10465/10587, `haproxy_trusted_networks = 172.25.0.11`) so real client IPs reach fail2ban.
-  Don't enable it on 993/587 themselves; webmail and local clients connect there without the header.
+- **fail2ban bans do not work on this path.** Remote logins arrive from cloudflared (pinned `172.25.0.11`,
+  ignored by fail2ban). With PROXY protocol the mailserver logs now show the real client IP (`rip=`, `client[...]`),
+  but a fail2ban ban is a firewall rule on the mailserver, and the connection's TCP peer is still cloudflared, so a
+  ban never blocks the attacker. What does work per real IP: HAProxy's connection-rate limit, Postfix
+  `smtpd_client_auth_rate_limit=20`/min on the proxy ports, and Dovecot's auth delay. Real bans need the ban
+  applied on the proxy box (a host-side watcher on nerdland that reads fail2ban's log and adds the IP to an
+  HAProxy deny list over SSH); that is not built yet. Use strong mailbox passwords.
 - The proxy box's VPC must not overlap `172.25.0.0/16` (the default VPC `172.31.0.0/16` is fine).
 
 ## Steps
@@ -61,8 +68,8 @@ holds the device-enrolment policies. Menu paths below are from Cloudflare's curr
 4. **Gateway TCP proxy:** Traffic policies → Traffic settings → enable "Allow Secure Web Gateway to proxy traffic" (TCP).
    Needed for network policies to see WARP traffic.
 5. **Gateway network policies** (Traffic policies → Firewall policies → Network), in this order:
-   1. Allow: *Destination IP* is `172.25.0.10` AND *Destination Port* in `993, 465, 587`
-      (API expression: `net.dst.ip == 172.25.0.10 and net.dst.port in {993 465 587}`).
+   1. Allow: *Destination IP* is `172.25.0.10` AND *Destination Port* in `10993, 10465, 10587`
+      (API expression: `net.dst.ip == 172.25.0.10 and net.dst.port in {10993 10465 10587}`).
    2. Block: *Destination IP* is `172.25.0.10` (everything else, notably 25, 143, 110).
 
 ### 2. Create the box (billable; review the dry run first)
@@ -99,22 +106,23 @@ use EC2 Instance Connect from the console. Cancel the safety net once all is wel
 
 ### 5. Reachability
 
-From the box: `openssl s_client -connect 172.25.0.10:993 -servername mail.<domain> </dev/null | head -20`
-must show the Let's Encrypt chain. Then `sudo systemctl restart haproxy; sudo ss -tlnp | grep haproxy`
+From the box the PROXY ports speak PROXY protocol first, so a plain `openssl` to 10993 will not work; test through
+HAProxy instead: `openssl s_client -connect 127.0.0.1:993 -servername mail.<domain> </dev/null | head -20` must
+show the Let's Encrypt chain (from anywhere, use the Elastic IP). Then `sudo systemctl restart haproxy; sudo ss -tlnp | grep haproxy`
 (listening on 993, 465, 587 only). HAProxy's health checks mark each backend up once WARP can reach it.
 
-### 6. HARD STOP: open-relay test (from the box, over WARP)
+### 6. HARD STOP: open-relay test (through the proxy, from any machine)
 
 ```
-swaks --server 172.25.0.10:587 --tls  --from a@example.com --to <your external address> --quit-after RCPT
-swaks --server 172.25.0.10:465 --tlsc --from a@example.com --to <your external address> --quit-after RCPT
-nc -zv -w5 172.25.0.10 25      # must fail (Gateway policy)
-nc -zv -w5 172.25.0.10 143     # must fail
+# 587 (STARTTLS) and 465 (TLS): an unauthenticated RCPT to an outside address must be rejected
+(sleep 3; printf 'EHLO t.example\r\nMAIL FROM:<a@example.com>\r\n'; sleep 1; printf 'RCPT TO:<x@gmail.com>\r\n'; sleep 1; printf 'QUIT\r\n'; sleep 1) \
+  | openssl s_client -starttls smtp -connect <EIP>:587 -servername mail.<domain> -quiet
+(same with -connect <EIP>:465 and no -starttls)
+# from the box: ports 25, 143 and the plain mail ports must give no banner (Gateway block)
 ```
-Both swaks runs must be **rejected at RCPT** (e.g. `554 5.7.1 ... Access denied` / `Relay access denied`). Anything
-accepted means stop: don't touch DNS and tell whoever maintains the mailserver.
-Also log in with a real mailbox through the box's own public IP:
-`openssl s_client -connect <EIP>:993 -servername mail.<domain>`, then `a LOGIN user pass` (type it, don't script it into history).
+Both runs must end in `554 5.7.1 ... Client host rejected: Access denied` (the rejected address is your real client
+IP). Anything accepted means stop: don't touch DNS and tell whoever maintains the mailserver.
+Also log in with a real mailbox through the Elastic IP (type the password; don't script it into history).
 
 ### 7. DNS last
 

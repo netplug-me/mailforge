@@ -6,7 +6,7 @@ Creates only new, separately named objects and never edits existing ones:
   2. a Service Auth policy for that token on the "Warp Login App" (device enrolment)
   3. a custom device profile matched to service-token devices, Split Tunnels = Include 172.25.0.10/32
   4. Gateway TCP proxy on (org-wide setting; network policies can't see WARP traffic without it)
-  5. Gateway network policies for 172.25.0.10: allow 993/465/587, block everything else
+  5. Gateway network policies for 172.25.0.10: allow the mail ports, block everything else
 
 Usage (from the project dir that holds .env):  python3 aws-proxy/setup_zero_trust.py [--dry-run]
 Needs token permissions: Access Service Tokens Write, Access Apps and Policies Write,
@@ -21,7 +21,8 @@ MAIL_IP = '172.25.0.10'
 TOKEN_NAME = 'mail-proxy-warp'
 POLICY_NAME = 'mail-proxy-service-auth'
 PROFILE_NAME = 'mail-proxy (service token)'
-PORTS = '993 465 587'
+# The mailserver's PROXY-protocol ports (aws-proxy/dms/). Plain 993/465/587 stay closed to WARP: the proxy box no longer uses them.
+PORTS = '10993 10465 10587'
 MDM_PATH = os.path.join(HERE, 'mdm.xml')
 
 env = {}
@@ -125,7 +126,15 @@ wanted = [
 ]
 for name, action, traffic, prec in wanted:
     if name in rules:
-        print(f'gateway rule "{name}" exists')
+        if rules[name]['traffic'] == traffic:
+            print(f'gateway rule "{name}" exists')
+        else:
+            step(f'update gateway rule "{name}": {traffic}')
+            if not DRY:
+                r = rules[name]
+                call('PUT', f'{P}/gateway/rules/{r["id"]}', {'name': name, 'action': r['action'], 'enabled': r['enabled'],
+                     'filters': r['filters'], 'traffic': traffic, 'precedence': r['precedence'],
+                     'description': r.get('description', '')})
         continue
     step(f'create gateway rule "{name}": {action} when {traffic}')
     if not DRY:

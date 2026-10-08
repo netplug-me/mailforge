@@ -161,7 +161,13 @@ Full read-through of `src/`, the inbound/outbound pipelines, and the tests (type
      public `openssl s_client -connect mail.switchboard.llc:993` verifies OK.
    - **Confirmed working by the owner (2026-10-08).** Old instance `i-00d6de85c70fb02ec` terminated, and its leftover
      security group `launch-wizard-7` and key pair `mailserver-key` were deleted.
-   - **Todo (optional):** PROXY protocol so fail2ban sees real client IPs (today only the HAProxy rate limit protects remote logins).
+   - **PROXY protocol DONE (2026-10-08):** HAProxy sends PROXY v2 to mailserver ports 10993/10465/10587 (`aws-proxy/dms/`:
+     `dovecot.cf` listener `haproxy=yes` trusting only 172.25.0.11, `user-patches.sh` clones submission(s) with
+     `smtpd_upstream_proxy_protocol=haproxy` + `smtpd_client_auth_rate_limit=20`). Both files live in
+     `docker-data/dms/config/` (gitignored; copies under `aws-proxy/dms/`) and need a container *recreate* to apply.
+     Gateway allow rule is now ports 10993/10465/10587 only. Verified: mailserver logs `rip=76.127.41.236`, relay still rejected.
+   - **Open:** fail2ban bans are ineffective on this path (the TCP peer is cloudflared). Real bans need a watcher that
+     pushes banned IPs to HAProxy on the AWS box; not built. Today: HAProxy rate limit + Postfix/Dovecot per-IP limits.
    Constraints:
    - **Never route 25 or 143 to remote clients.** `PERMIT_DOCKER=connected-networks` trusts the compose network incl.
      cloudflared. 465/587 are safe by Postfix config (`permit_sasl_authenticated,reject`), verified in `master.cf` and to be
