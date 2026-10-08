@@ -31,10 +31,10 @@ export class EnvFileManager {
     for (const line of this.lines) {
       const trimmed = line.trim();
       if (trimmed.startsWith('#') || !trimmed.includes('=')) continue;
-      const eqIdx = line.indexOf('=');
-      const k = line.substring(0, eqIdx).trim();
+      const eqIdx = trimmed.indexOf('=');
+      const k = trimmed.substring(0, eqIdx).trim();
       if (k === key) {
-        let val = line.substring(eqIdx + 1).trim();
+        let val = trimmed.substring(eqIdx + 1).trim();
         if ((val.startsWith("'") && val.endsWith("'")) || (val.startsWith('"') && val.endsWith('"'))) {
           val = val.substring(1, val.length - 1);
         }
@@ -48,10 +48,10 @@ export class EnvFileManager {
     const formattedVal = quote ? `'${value}'` : value;
     let found = false;
     for (let i = 0; i < this.lines.length; i++) {
-      const line = this.lines[i].trim();
-      if (line.startsWith('#') || !line.includes('=')) continue;
-      const eqIdx = this.lines[i].indexOf('=');
-      const k = this.lines[i].substring(0, eqIdx).trim();
+      const trimmed = this.lines[i].trim();
+      if (trimmed.startsWith('#') || !trimmed.includes('=')) continue;
+      const eqIdx = trimmed.indexOf('=');
+      const k = trimmed.substring(0, eqIdx).trim();
       if (k === key) {
         this.lines[i] = `${key}=${formattedVal}`;
         found = true;
@@ -67,8 +67,8 @@ export class EnvFileManager {
     this.lines = this.lines.filter((line) => {
       const trimmed = line.trim();
       if (trimmed.startsWith('#') || !trimmed.includes('=')) return true;
-      const eqIdx = line.indexOf('=');
-      const k = line.substring(0, eqIdx).trim();
+      const eqIdx = trimmed.indexOf('=');
+      const k = trimmed.substring(0, eqIdx).trim();
       return k !== key;
     });
   }

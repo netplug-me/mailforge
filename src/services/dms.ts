@@ -348,10 +348,18 @@ fi
   }
 
   /**
-   * Generates DKIM key for a domain
+   * Generates DKIM key for a domain (blocking — use generateDkimAsync for non-blocking).
    */
   public generateDkim(domain: string, selector = 'mail', keysize = 2048): ExecResult {
     return this.runSetup(['config', 'dkim', 'selector', selector, 'keysize', keysize.toString(), 'domain', domain]);
+  }
+
+  /**
+   * Non-blocking DKIM key generation.
+   */
+  public async generateDkimAsync(domain: string, selector = 'mail', keysize = 2048): Promise<ExecResult> {
+    if (this.docker.getContainerStatus() !== 'running') return this.generateDkim(domain, selector, keysize);
+    return this.docker.runAsync(['exec', 'mailserver', 'setup', 'config', 'dkim', 'selector', selector, 'keysize', keysize.toString(), 'domain', domain]);
   }
 
   /**

@@ -379,6 +379,7 @@ export async function addDomainFlow(ctx: FlowContext): Promise<void> {
       forward: forward || undefined,
       syncDns: Boolean(v.dns),
     });
+    ui.setBusy('Creating mailboxes…');
     const boxes = !forward && users.length > 0
       ? await createMailboxes(ctx, domain, users, String(v.password), String(v.quota).trim().toUpperCase())
       : { created: [], errors: [] };

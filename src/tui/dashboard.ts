@@ -107,5 +107,6 @@ async function loadHealth(mailserverUp: boolean): Promise<Health> {
     process.env.WEBMAIL_HOSTNAME ? docker.serviceState('webmail') : Promise.resolve(undefined),
     mailserverUp ? ops.cert().catch(() => undefined) : Promise.resolve(undefined),
   ]);
+  // WEBMAIL_HOSTNAME and POSTMARK_SERVER_TOKEN are special per-project env vars not in AppConfig.
   return { bridge, tunnel, webmail, relay: Boolean(process.env.POSTMARK_SERVER_TOKEN), certDays: cert?.daysLeft };
 }

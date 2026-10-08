@@ -214,12 +214,16 @@ export class OpsService {
 
   /** Container state of each stage of the inbound/outbound path. */
   async pipeline() {
-    const mxHost = getAppConfig().mxHost;
-    const domain = getAppConfig().primaryDomain;
+    const config = getAppConfig();
+    const mxHost = config.mxHost;
+    const domain = config.primaryDomain;
     const [bridge, tunnel, mx] = await Promise.all([
       this.docker.serviceState('inbound-bridge'),
       this.docker.serviceState('cloudflared'),
-      dns.resolveMx(domain).catch(() => [] as MxRecord[]),
+      dns.resolveMx(domain).catch((err: any) => {
+        if (err.code === 'ERR_INVALID_ARGUMENT') return [] as MxRecord[];
+        return [] as MxRecord[];
+      }),
     ]);
     return {
       bridge,

@@ -68,7 +68,17 @@ export function windowStart(selected: number, count: number, height: number): nu
 /** A readable random password without look-alike characters. */
 export function generatePassword(length = 16): string {
   const alphabet = 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const alphabetLen = alphabet.length;
+  const threshold = Math.floor(0xFFFFFFFF / alphabetLen) * alphabetLen;
   const bytes = new Uint32Array(length);
-  globalThis.crypto.getRandomValues(bytes);
-  return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join('');
+  const result = new Array(length);
+  for (let i = 0; i < length; i++) {
+    let val: number;
+    do {
+      globalThis.crypto.getRandomValues(bytes);
+      val = bytes[i];
+    } while (val >= threshold);
+    result[i] = alphabet[val % alphabetLen];
+  }
+  return result.join('');
 }

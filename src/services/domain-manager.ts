@@ -115,16 +115,17 @@ export class DomainManager {
     // 2. Generate DKIM key
     let dkimGenerated = false;
     let dkimVal: string | undefined;
-    const dkimRes = this.dms.generateDkim(domain, this.config.dkimSelector);
-    dkimGenerated = dkimRes.success;
-    if (!dkimRes.success) {
-      errors.push(`DKIM generation failed: ${(dkimRes.stderr || dkimRes.stdout).trim()}`);
-    }
-
-    const dkimInfo = this.dkim.getDkimInfo(domain, this.config.dkimSelector);
-    if (dkimInfo.exists) {
+    const dkimRes = await this.dms.generateDkimAsync(domain, this.config.dkimSelector);
+    if (dkimRes.success) {
       dkimGenerated = true;
-      dkimVal = dkimInfo.dnsValue;
+      const dkimInfo = this.dkim.getDkimInfo(domain, this.config.dkimSelector);
+      if (dkimInfo.exists) {
+        dkimVal = dkimInfo.dnsValue;
+      }
+    } else {
+      dkimGenerated = false;
+      dkimVal = undefined;
+      errors.push(`DKIM generation failed: ${(dkimRes.stderr || dkimRes.stdout).trim()}`);
     }
 
     // 3. Create users / forwarders / quotas
