@@ -284,6 +284,12 @@ For a single domain with a handful of mailboxes and minimal traffic:
 
 ---
 
+## 🏢 Companies using mailforge
+
+- **[netplug.me](https://netplug.me)** — Full mail infrastructure across multiple domains
+
+---
+
 ## 📄 License
 
 MIT © [RCP Solutions](https://rcpsolutions.net)
