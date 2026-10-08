@@ -29,4 +29,17 @@ services:
       - SSL_TYPE=letsencrypt
     cap_add:
       - NET_ADMIN
+    networks:
+      default:
+        ipv4_address: 172.25.0.10  # fixed address
     restart: always
+
+# Pinned so the subnet (fail2ban ignoreip uses the gateway) and the mailserver address survive
+# `compose down`. Other containers draw dynamic addresses from 172.25.1.0/24, never colliding with it.
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.25.0.0/16
+          gateway: 172.25.0.1
+          ip_range: 172.25.1.0/24

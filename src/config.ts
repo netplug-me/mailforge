@@ -70,9 +70,10 @@ export function saveAppEnv(updates: Partial<Record<string, string>>, targetDir?:
     if (value === undefined) continue;
     let found = false;
     for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].trim();
-      if (line.startsWith('#') || !line.includes('=')) continue;
-      const k = line.substring(0, line.indexOf('=')).trim();
+      const trimmed = lines[i].trim();
+      if (trimmed.startsWith('#') || !trimmed.includes('=')) continue;
+      const eqIdx = trimmed.indexOf('=');
+      const k = trimmed.substring(0, eqIdx).trim();
       if (k === key) {
         lines[i] = `${key}=${value}`;
         found = true;
@@ -85,5 +86,10 @@ export function saveAppEnv(updates: Partial<Record<string, string>>, targetDir?:
   }
 
   fs.writeFileSync(envPath, lines.join('\n'), 'utf-8');
-  cachedConfig = null; // invalidate cache
+  clearConfigCache();
+}
+
+/** Explicitly clear the cached AppConfig. Used after .env changes. */
+export function clearConfigCache(): void {
+  cachedConfig = null;
 }

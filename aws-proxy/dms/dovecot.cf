@@ -1,0 +1,12 @@
+# PROXY-protocol twin of the imaps listener, for the AWS proxy box (aws-proxy/haproxy.cfg).
+# Port 10993 expects a PROXY header and trusts it only from cloudflared (pinned 172.25.0.11), so the
+# logs and Dovecot's per-IP limits see the real client address. 993 is untouched (webmail, local clients).
+haproxy_trusted_networks = 172.25.0.11
+
+service imap-login {
+  inet_listener imaps_proxy {
+    port = 10993
+    ssl = yes
+    haproxy = yes
+  }
+}

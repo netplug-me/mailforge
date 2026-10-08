@@ -22,8 +22,12 @@ export class DockerService {
    * A plain `docker compose up` would recreate the mailserver without the inbound
    * (PERMIT_DOCKER) and outbound (Postmark relay) settings, and drop the webmail service.
    */
-  private composeArgs(): string[] {
+  private ensureEnvLoaded(): void {
     getAppConfig(this.projectDir); // loads .env into process.env
+  }
+
+  private composeArgs(): string[] {
+    this.ensureEnvLoaded();
     const files = ['compose.yaml'];
     const overrides: Array<[string, string]> = [
       ['inbound/compose.inbound.yaml', 'BRIDGE_SECRET'],

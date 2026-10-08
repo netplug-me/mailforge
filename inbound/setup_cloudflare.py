@@ -1,14 +1,19 @@
 #!/usr/bin/env python3
 """Set up the Cloudflare side of inbound mail for PRIMARY_DOMAIN. Idempotent.
 
-  1. Tunnel "<domain>-inbound" with ingress  mail-ingest.<domain> -> http://inbound-bridge:8025
+  1. Tunnel "<domain>-inbound" with HTTP ingress  mail-ingest.<domain> -> http://inbound-bridge:8025
   2. Proxied CNAME  mail-ingest.<domain> -> <tunnel-id>.cfargotunnel.com
   3. Email Worker "<domain>-inbound" (worker/worker.js) with BRIDGE_URL and BRIDGE_SECRET
   4. Email Routing enabled, with a catch-all rule sending every address to the Worker.
      Email Routing needs its own MX/SPF records, so a conflicting MX record is removed and
      the domain's SPF TXT record gains the Cloudflare include (and Postmark's, when
      POSTMARK_SERVER_TOKEN is set). Both are printed before anything changes.
-  5. Writes the tunnel connector token into .env as CF_TUNNEL_TOKEN.
+  5. Remote mail clients: the tunnel gets warp-routing enabled and a private-network route
+     <MAIL_PRIVATE_IP>/32 (default 172.25.0.10, the mailserver address pinned in compose.yaml) so the
+     AWS proxy box (aws-proxy/) can reach it over WARP. When MAIL_PUBLIC_IP is set in .env, also a
+     DNS-only A record mail.<domain> -> that IP (the proxy's Elastic IP; set it only after testing).
+     WARP enrolment, the device profile and the Gateway policy are dashboard steps (aws-proxy/README.md).
+  6. Writes the tunnel connector token into .env as CF_TUNNEL_TOKEN.
 
 Usage (from the project dir that holds .env):  python3 inbound/setup_cloudflare.py [--dry-run]
 Needs token permissions: Zone DNS Edit, Zone Email Routing Rules Edit,
@@ -58,6 +63,9 @@ INGEST_HOST = f'mail-ingest.{DOMAIN}'
 BRIDGE_URL = f'https://{INGEST_HOST}/ingest'
 CF_MX_SPF = 'include:_spf.mx.cloudflare.net'
 POSTMARK_SPF = 'include:spf.mtasv.net'
+MAIL_HOST = f'mail.{DOMAIN}'
+MAIL_IP = env.get('MAIL_PRIVATE_IP', '172.25.0.10')  # pinned in compose.yaml
+MAIL_PUBLIC_IP = env.get('MAIL_PUBLIC_IP')  # the AWS proxy's Elastic IP; optional
 # Mechanisms that must be present in the apex SPF record (Postmark only when outbound relay is configured).
 SPF_INCLUDES = [CF_MX_SPF] + ([POSTMARK_SPF] if env.get('POSTMARK_SERVER_TOKEN') else [])
 
@@ -96,13 +104,36 @@ if tunnels:
 else:
     step(f'create tunnel {NAME}')
     tid = None if DRY else call('POST', f'/accounts/{ACCT}/cfd_tunnel', {'name': NAME, 'config_src': 'cloudflare'})['id']
-ingress = {'config': {'ingress': [
-    {'hostname': INGEST_HOST, 'service': 'http://inbound-bridge:8025'},
-    {'service': 'http_status:404'},
-]}}
-step(f'set tunnel ingress {INGEST_HOST} -> http://inbound-bridge:8025')
-if not DRY:
-    call('PUT', f'/accounts/{ACCT}/cfd_tunnel/{tid}/configurations', ingress)
+
+# The configurations PUT replaces the whole config, and other rules (e.g. webmail) live in it, so
+# GET first and carry everything over. Stale tcp:// rules from an abandoned approach are dropped.
+config = (call('GET', f'/accounts/{ACCT}/cfd_tunnel/{tid}/configurations') or {}).get('config') or {} if tid else {}
+rules = [r for r in config.get('ingress', [])
+         if r.get('service') != 'http_status:404' and not r.get('service', '').startswith('tcp://')]
+if not any(r.get('hostname') == INGEST_HOST for r in rules):
+    rules.insert(0, {'hostname': INGEST_HOST, 'service': 'http://inbound-bridge:8025'})
+# catch-all must be last; warp-routing lets WARP devices reach the private-network route below
+new_config = {**config, 'ingress': rules + [{'service': 'http_status:404'}], 'warp-routing': {'enabled': True}}
+if new_config == config:
+    print('tunnel config already up to date')
+else:
+    step(f'set tunnel config ({len(rules)} rules + catch-all, warp-routing enabled)')
+    if not DRY:
+        call('PUT', f'/accounts/{ACCT}/cfd_tunnel/{tid}/configurations', {'config': new_config})
+
+# 1b. Private-network route: only the mailserver's pinned address goes through the tunnel
+route_cidr = f'{MAIL_IP}/32'
+routes = call('GET', f'/accounts/{ACCT}/teamnet/routes?is_deleted=false&per_page=100') or []
+if any(r.get('network') == route_cidr for r in routes):
+    print(f'private-network route {route_cidr} exists')
+else:
+    step(f'create private-network route {route_cidr} -> tunnel {NAME}')
+    if not DRY:
+        try:
+            call('POST', f'/accounts/{ACCT}/teamnet/routes',
+                 {'network': route_cidr, 'tunnel_id': tid, 'comment': 'mailserver (IMAPS/submission via AWS proxy over WARP)'})
+        except SystemExit as e:
+            print(f'  {e}\n  -> add the route in Zero Trust > Networks > Tunnels > {NAME} > Private networks')
 
 # 2. DNS for the ingest hostname
 target = f'{tid}.cfargotunnel.com' if tid else '<tunnel-id>.cfargotunnel.com'
@@ -117,6 +148,23 @@ else:
     step(f'create DNS CNAME {INGEST_HOST} -> {target} (proxied)')
     if not DRY:
         call('POST', f'/zones/{ZID}/dns_records', {'type': 'CNAME', 'name': INGEST_HOST, 'content': target, 'proxied': True})
+
+# 2b. mail.<domain> -> the proxy's public IP (DNS-only: the proxy passes TLS through to the mailserver)
+if MAIL_PUBLIC_IP:
+    existing_mail = call('GET', f'/zones/{ZID}/dns_records?name={MAIL_HOST}')
+    if (len(existing_mail) == 1 and existing_mail[0]['type'] == 'A'
+            and existing_mail[0]['content'] == MAIL_PUBLIC_IP and not existing_mail[0]['proxied']):
+        print(f'DNS {MAIL_HOST} already points to {MAIL_PUBLIC_IP}')
+    else:
+        for r in existing_mail:
+            step(f"delete DNS {r['type']} {r['name']} -> {r['content']}")
+            if not DRY:
+                call('DELETE', f"/zones/{ZID}/dns_records/{r['id']}")
+        step(f'create DNS A {MAIL_HOST} -> {MAIL_PUBLIC_IP} (DNS only)')
+        if not DRY:
+            call('POST', f'/zones/{ZID}/dns_records', {'type': 'A', 'name': MAIL_HOST, 'content': MAIL_PUBLIC_IP, 'proxied': False, 'ttl': 300})
+else:
+    print(f'MAIL_PUBLIC_IP not set: leaving DNS for {MAIL_HOST} alone')
 
 # 3. Worker
 src = open(os.path.join(HERE, 'worker', 'worker.js'), 'rb').read()
@@ -165,4 +213,5 @@ if not DRY:
     tok = call('GET', f'/accounts/{ACCT}/cfd_tunnel/{tid}/token')
     set_env_value(ENV_PATH, 'CF_TUNNEL_TOKEN', tok)
     print('CF_TUNNEL_TOKEN written to .env')
-    print('\nNext: docker compose -f compose.yaml -f inbound/compose.inbound.yaml up -d')
+    print('\nNext: apply the stack with ./mailctl (Start), or docker compose with every overlay file that exists:\n'
+          '  -f compose.yaml -f inbound/compose.inbound.yaml -f outbound/compose.outbound.yaml -f webmail/compose.webmail.yaml')
