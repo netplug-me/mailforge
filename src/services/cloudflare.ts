@@ -160,7 +160,7 @@ export class CloudflareService {
         ttl: record.ttl ?? 1, // 1 = auto
         priority: record.priority,
         proxied: false, // Mail records must not be proxied
-        comment: record.comment || 'Managed by cf-mail-tui',
+        comment: record.comment || 'Managed by mailforge',
       }),
     });
   }
@@ -178,7 +178,7 @@ export class CloudflareService {
         ttl: record.ttl ?? 1,
         priority: record.priority,
         proxied: false,
-        comment: record.comment || 'Managed by cf-mail-tui',
+        comment: record.comment || 'Managed by mailforge',
       }),
     });
   }

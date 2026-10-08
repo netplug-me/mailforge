@@ -55,7 +55,7 @@ export function registerCommands(program: Command): void {
       logger.info('Next steps:');
       console.log(`  1. cd ${targetDir}`);
       console.log('  2. Edit .env (set CF_API_TOKEN if using Cloudflare)');
-      console.log('  3. Run: cf-mail list (or cf-mail tui)');
+      console.log('  3. Run: mailforge list (or mailforge tui)');
     });
 
   // 2. List domains

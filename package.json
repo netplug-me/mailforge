@@ -1,10 +1,10 @@
 {
-  "name": "cf-mail-tui",
+  "name": "mailforge",
   "version": "1.0.0",
-  "description": "Docker Mailserver Manager & Cloudflare DNS Sync with Interactive TUI",
+  "description": "Full-stack mail server orchestrator: Docker Mailserver, Cloudflare DNS, AWS proxy, inbound routing, outbound relay — with an interactive TUI",
   "type": "module",
   "bin": {
-    "cf-mail": "./dist/index.js",
+    "mailforge": "./dist/index.js",
     "mailctl": "./dist/index.js"
   },
   "scripts": {

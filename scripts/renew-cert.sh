@@ -3,7 +3,7 @@
 # then restart Postfix/Dovecot in docker-mailserver if the certificate changed.
 #
 # certbot only renews within 30 days of expiry, so running this often is cheap.
-# Scheduled from the user crontab (see HAND_OFF.md). Usage:
+# Scheduled from the user crontab. Usage:
 #   scripts/renew-cert.sh            # renew if due
 #   scripts/renew-cert.sh --dry-run  # test against Let's Encrypt staging, no changes
 set -euo pipefail
