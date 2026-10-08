@@ -241,6 +241,49 @@ src/
 
 ---
 
+## 💰 Estimated Costs (Low Volume)
+
+For a single domain with a handful of mailboxes and minimal traffic:
+
+### AWS (proxy box only)
+
+| Resource | Cost |
+|---|---|
+| t3.micro instance | ~$8.50/mo (on-demand, 24/7) |
+| Elastic IP | Free while attached to a running instance |
+| Data transfer | ~$0.01–0.05/mo (negligible for light IMAP/SMTP) |
+| **Total** | **~$8.50–9/mo** |
+
+> The proxy box is optional — skip it if all clients are on the same network or you use a VPN.
+
+### Cloudflare
+
+| Service | Cost |
+|---|---|
+| DNS | Free |
+| Email Routing | Free |
+| Tunnel (Cloudflare Tunnel) | Free |
+| Zero Trust / WARP (service token) | Free |
+| **Total** | **$0/mo** |
+
+### Postmark (optional outbound relay)
+
+| Tier | Cost |
+|---|---|
+| Free trial | 100 emails/mo free |
+| Pay-as-you-go | ~$0.0015/email after free tier |
+| **Light usage** | **$0–1/mo** |
+
+### Summary
+
+| Scenario | Monthly cost |
+|---|---|
+| **Bare minimum** (no AWS, no Postmark) | **$0** |
+| **With AWS proxy** | **~$9** |
+| **With AWS + Postmark** | **~$9–10** |
+
+---
+
 ## 📄 License
 
 MIT © [RCP Solutions](https://rcpsolutions.net)
