@@ -28,41 +28,56 @@ as they are for webmail and local clients, and are closed to the proxy box by th
   includes cloudflared. Port 25 reachable through the proxy would be an open relay. (Ports 465/587 are safe by
   Postfix config: both `submission` and `submissions` set `smtpd_client_restrictions=permit_sasl_authenticated,reject`,
   so `mynetworks` does not apply. Step 6 proves it before anything is opened.)
-- **fail2ban bans do not work on this path.** Remote logins arrive from cloudflared (pinned `172.25.0.11`,
-  ignored by fail2ban). With PROXY protocol the mailserver logs now show the real client IP (`rip=`, `client[...]`),
-  but a fail2ban ban is a firewall rule on the mailserver, and the connection's TCP peer is still cloudflared, so a
-  ban never blocks the attacker. What does work per real IP: HAProxy's connection-rate limit, Postfix
-  `smtpd_client_auth_rate_limit=20`/min on the proxy ports, and Dovecot's auth delay.
-- **Ban sync via `fail2ban-watcher.sh`**: a script on nerdland tails the mounted mail log, detects fail2ban
-  `Ban` events (which show the real client IP thanks to PROXY protocol), and pushes each ban to the proxy box's
-  HAProxy stick-table over SSH + socat. Entries expire after 10 minutes (matching the stick-table config).
-  See "Setup" below. Use strong mailbox passwords as a secondary defense.
+- **fail2ban bans do not work on this path by themselves.** Remote logins arrive from cloudflared (pinned
+  `172.25.0.11`, ignored by fail2ban). With PROXY protocol the mailserver logs show the real client IP, but a
+  fail2ban ban is a firewall rule on the mailserver, and the connection's TCP peer is still cloudflared, so on its
+  own a ban never blocks the attacker. `fail2ban-watcher.sh` (below) closes that gap by mirroring bans onto the
+  proxy box. Independent of it, per real IP: HAProxy's connection-rate limit, Postfix
+  `smtpd_client_auth_rate_limit=20`/min on the proxy ports, and Dovecot's auth delay. Use strong mailbox passwords.
 - The proxy box's VPC must not overlap `172.25.0.0/16` (the default VPC `172.31.0.0/16` is fine).
 
-### fail2ban-watcher setup
+### Ban sync: `fail2ban-watcher.sh`
 
-1. **Ensure the admin socket** is configured in `haproxy.cfg` (already added — `stats socket /run/haproxy/admin.sock`).
-   The proxy box also needs `socat` installed (added to `user-data.sh`).
+Runs on nerdland. It follows fail2ban's log, and for each `Ban` / `Restore Ban` / `Unban` of a public IPv4 sets or
+clears `gpc0` for that IP in HAProxy's `st_src` stick-table (`set table st_src key <ip> data.gpc0 1|0`, over SSH +
+`sudo socat` to the admin socket). Every frontend rejects connections whose `gpc0` is set, before the rate checks.
 
-2. **Set up SSH key** from nerdland to the proxy box:
+- **Expiry:** an entry ages out 10 minutes after the IP's last connection attempt. A banned IP that keeps knocking
+  keeps its ban alive; one that stops is let back in after 10 minutes even though fail2ban still holds the ban.
+- **Restarts:** HAProxy forgets its table on restart or reload, so the watcher replays `fail2ban-client banned` at
+  startup. After restarting HAProxy, restart the watcher too.
+- **Two jails:** an IP banned in both `postfix` and `dovecot` is unbanned at HAProxy only when both release it.
+- **Skipped on purpose:** loopback, private and CGNAT addresses (the compose network, cloudflared) and IPv6 (the
+  table is `type ip` and the security group is IPv4-only).
+
+Setup:
+
+1. **Apply the new `haproxy.cfg`.** The `gpc0` column and reject rules, plus the admin socket, only exist on boxes
+   provisioned after this change. For a running proxy box, copy `aws-proxy/haproxy.cfg` to
+   `/etc/haproxy/haproxy.cfg`, run `sudo apt-get install -y socat`, then `sudo haproxy -c -f /etc/haproxy/haproxy.cfg
+   && sudo systemctl restart haproxy`. The socket is root-owned (`mode 660`), hence `sudo` in the SSH command;
+   Ubuntu's default `ubuntu` user has passwordless sudo.
+2. **SSH access** from the user that runs the watcher to the proxy box. `provision.sh` already saved the key as
+   `~/.ssh/mail-proxy.pem`; pass it with `PROXY_SSH_KEY`.
+3. **Preview, then run** (from nerdland, where compose.yaml lives):
    ```bash
-   ssh-copy-id -i ~/.ssh/id_rsa.pub ubuntu@<EIP>
+   PROXY_SSH_HOST=<EIP> ./aws-proxy/fail2ban-watcher.sh --dry-run     # prints the HAProxy commands only
+   PROXY_SSH_HOST=<EIP> PROXY_SSH_KEY=~/.ssh/mail-proxy.pem ./aws-proxy/fail2ban-watcher.sh
    ```
-
-3. **Run the watcher** from nerdland (where compose.yaml lives):
-   ```bash
-   PROXY_SSH_HOST=<EIP> ./aws-proxy/fail2ban-watcher.sh
-   ```
-   Or with `--dry-run` to preview without pushing bans.
-
-4. **Optional: systemd service** on nerdland (`/etc/systemd/system/fail2ban-watcher.service`):
+   `docker-data/dms/mail-logs/fail2ban.log` is root-only; without read access the script follows the log with
+   `docker exec mailserver tail -F` instead, so a user in the `docker` group is enough.
+4. **Check it on the proxy box:** `echo "show table st_src" | sudo socat stdio /run/haproxy/admin.sock`
+   lists the entries with `gpc0=1` for banned IPs. `npm run test:f2b` covers the parsing and push logic offline.
+5. **Optional: systemd service** (`/etc/systemd/system/fail2ban-watcher.service`):
    ```ini
    [Unit]
-   Description=Fail2ban → HAProxy ban sync
+   Description=fail2ban to HAProxy ban sync
    After=docker.service
 
    [Service]
    Type=simple
+   User=lham
+   Environment=PROXY_SSH_HOST=<EIP> PROXY_SSH_KEY=/home/lham/.ssh/mail-proxy.pem
    ExecStart=/home/lham/dev/cli/cf-mail-tui/aws-proxy/fail2ban-watcher.sh
    Restart=always
    RestartSec=10
