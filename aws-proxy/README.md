@@ -68,24 +68,17 @@ Setup:
    `docker exec mailserver tail -F` instead, so a user in the `docker` group is enough.
 4. **Check it on the proxy box:** `echo "show table st_src" | sudo socat stdio /run/haproxy/admin.sock`
    lists the entries with `gpc0=1` for banned IPs. `npm run test:f2b` covers the parsing and push logic offline.
-5. **Optional: systemd service** (`/etc/systemd/system/fail2ban-watcher.service`):
-   ```ini
-   [Unit]
-   Description=fail2ban to HAProxy ban sync
-   After=docker.service
-
-   [Service]
-   Type=simple
-   User=lham
-   Environment=PROXY_SSH_HOST=<EIP> PROXY_SSH_KEY=/home/lham/.ssh/mail-proxy.pem
-   ExecStart=/home/lham/dev/cli/cf-mail-tui/aws-proxy/fail2ban-watcher.sh
-   Restart=always
-   RestartSec=10
-
-   [Install]
-   WantedBy=multi-user.target
+5. **Run it as a service** (so it survives logouts and reboots) with the installer, as root on nerdland:
+   ```bash
+   sudo ./aws-proxy/install-fail2ban-watcher.sh            # PROXY_SSH_HOST defaults to MAIL_PUBLIC_IP in .env
+   journalctl -u fail2ban-watcher -f                       # "startup sync: replayed N active ban(s)", then ban/unban lines
    ```
-   Then `systemctl enable --now fail2ban-watcher`.
+   It runs as the user who called `sudo` (override with `WATCHER_USER=`), who needs read access to the SSH key
+   (`PROXY_SSH_KEY`, default `~/.ssh/mail-proxy.pem`) and membership of the `docker` group. Before writing anything it
+   checks the key, the group, SSH to the proxy box, the HAProxy admin socket and `fail2ban-client` in the container,
+   so a misconfiguration fails with a message instead of a restart loop. Preview the unit with
+   `./aws-proxy/install-fail2ban-watcher.sh --print`; remove it with `sudo ./aws-proxy/install-fail2ban-watcher.sh --uninstall`.
+   After changing the proxy box's address or key, re-run the installer (it rewrites the unit and restarts).
 
 ## Steps
 
@@ -186,5 +179,8 @@ IMAP 993 (SSL/TLS), SMTP 465 (SSL/TLS) or 587 (STARTTLS).
   `warp-cli status` and `systemctl status warp-svc haproxy`.
 - If `compose down/up` ever changes addresses, the pins in `compose.yaml` / `compose.inbound.yaml` keep
   `172.25.0.10` and `172.25.0.11` stable; keep the route, `haproxy.cfg` and `fail2ban-jail.cf` in sync with them.
+- The ban sync is the `fail2ban-watcher` systemd service on nerdland (`systemctl status fail2ban-watcher`). If it is
+  down, nothing breaks, but new bans stop reaching the proxy; restarting it replays all active bans. Restart it
+  after restarting HAProxy on the proxy box, which clears the table.
 - Costs: t3.micro + Elastic IP + data transfer. Tear down: terminate the instance, release the Elastic IP
   (otherwise it keeps billing), delete the security group, revoke the service token, delete the A record.
