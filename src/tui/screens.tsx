@@ -35,7 +35,7 @@ import {
 
 // ── Shared ───────────────────────────────────────────────────────────────────
 
-export type ScreenKey = 'mailboxes' | 'domains' | 'tools';
+export type ScreenKey = 'overview' | 'mailboxes' | 'domains' | 'tools';
 
 export interface Nav {
   screen: ScreenKey;
@@ -46,6 +46,9 @@ export interface Nav {
   toolSel: number;
   /** Lines scrolled up from the newest in the Tools output. */
   outScroll: number;
+  /** Overview log filter (index into LOG_FILTERS) and lines scrolled up from the newest. */
+  ovFilter: number;
+  ovScroll: number;
 }
 
 export interface ScreenProps {
@@ -60,7 +63,7 @@ export interface ScreenProps {
   run: (fn: () => Promise<void>) => void;
 }
 
-interface Seg {
+export interface Seg {
   t: string;
   color?: string;
   bold?: boolean;
@@ -68,7 +71,7 @@ interface Seg {
 }
 
 /** One list row built from coloured segments, padded to `width` so a selection highlight spans it. */
-function Line({ segs, width, selected }: { segs: Seg[]; width: number; selected?: boolean }) {
+export function Line({ segs, width, selected }: { segs: Seg[]; width: number; selected?: boolean }) {
   const used = segs.reduce((n, s) => n + stringWidth(s.t), 0);
   return (
     <Text wrap="truncate" backgroundColor={selected ? C.selectedBg : undefined}>
@@ -82,7 +85,7 @@ function Line({ segs, width, selected }: { segs: Seg[]; width: number; selected?
   );
 }
 
-function Detail({ label, children, labelWidth = 10 }: { label: string; children: React.ReactNode; labelWidth?: number }) {
+export function Detail({ label, children, labelWidth = 10 }: { label: string; children: React.ReactNode; labelWidth?: number }) {
   return (
     <Box>
       <Box width={labelWidth} flexShrink={0}>

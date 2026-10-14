@@ -146,6 +146,7 @@ export function StatusBar({
           <Text color={certColor(health.certDays)}>  ⚿ tls {health.certDays}d</Text>
         )}
       </Text>
+      <Box flexShrink={0} marginLeft={1}>
       <Text wrap="truncate">
         {refreshing ? (
           <Text color={C.warn}>
@@ -155,6 +156,7 @@ export function StatusBar({
           <Text dimColor>{time ? `updated ${time} ` : ''}</Text>
         )}
       </Text>
+      </Box>
     </Box>
   );
 }

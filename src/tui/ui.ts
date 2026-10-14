@@ -1,5 +1,5 @@
 import type { CloudflareZone, DomainInfo, MailboxAccount, MailboxAlias } from '../types.js';
-import type { QuotaRow } from '../services/ops.js';
+import type { LiveData, QuotaRow } from '../services/ops.js';
 
 // Bridge between the imperative action flows (actions.ts) and the Ink view (App.tsx).
 // Actions `await ui.select(...)` etc.; the view renders whatever prompt is pending and
@@ -112,6 +112,8 @@ export interface DashboardData {
   /** Zones on the Cloudflare account; undefined until first loaded. */
   zones?: CloudflareZone[];
   zonesError?: string;
+  /** Latest poll of logs, bans, queue and clients for the Overview; undefined until the first one lands. */
+  live?: LiveData;
   refreshedAt?: Date;
 }
 

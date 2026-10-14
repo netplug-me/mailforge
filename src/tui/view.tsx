@@ -18,13 +18,19 @@ import {
   useTerminalSize,
 } from './widgets.js';
 import { DomainsScreen, MailboxesScreen, Nav, ScreenKey, ToolsScreen } from './screens.js';
-import { refreshDashboard } from './dashboard.js';
+import { OverviewScreen } from './overview.js';
+import { refreshDashboard, refreshLive } from './dashboard.js';
 
-const SCREEN_ORDER: ScreenKey[] = ['mailboxes', 'domains', 'tools'];
+const SCREEN_ORDER: ScreenKey[] = ['overview', 'mailboxes', 'domains', 'tools'];
 
-const INITIAL_NAV: Nav = { screen: 'mailboxes', mbxSel: 0, mbxFilter: 0, domSel: 0, toolSel: 0, outScroll: 0 };
+const INITIAL_NAV: Nav = { screen: 'overview', mbxSel: 0, mbxFilter: 0, domSel: 0, toolSel: 0, outScroll: 0, ovFilter: 0, ovScroll: 0 };
 
 const HINTS: Record<ScreenKey, Hint[]> = {
+  overview: [
+    { key: 'f', label: 'log filter' },
+    { key: '↑↓/pgup/pgdn', label: 'scroll log' },
+    { key: 'G', label: 'follow' },
+  ],
   mailboxes: [
     { key: 'a', label: 'add mailbox' },
     { key: 'l', label: 'alias' },
@@ -90,12 +96,14 @@ export function App({ dm }: { dm: DomainManager }) {
       else if (input === 'r') {
         ui.toast('info', 'Refreshing…', 2000);
         void refreshDashboard(dm);
+        void refreshLive();
       }
     },
     { isActive: idle }
   );
 
   const tabs: TabSpec[] = [
+    { key: 'overview', label: 'Overview' },
     { key: 'mailboxes', label: 'Mailboxes', count: dashboard.accounts.length },
     { key: 'domains', label: 'Domains', count: dashboard.domains.length },
     { key: 'tools', label: 'Tools' },
@@ -135,6 +143,7 @@ export function App({ dm }: { dm: DomainManager }) {
   } else {
     content = (
       <>
+        {nav.screen === 'overview' && <OverviewScreen {...screenProps} />}
         {nav.screen === 'mailboxes' && <MailboxesScreen {...screenProps} />}
         {nav.screen === 'domains' && <DomainsScreen {...screenProps} />}
         {nav.screen === 'tools' && <ToolsScreen {...screenProps} state={state} />}

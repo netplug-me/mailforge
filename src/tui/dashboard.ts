@@ -1,11 +1,15 @@
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { getAppConfig } from '../config.js';
 import { DockerService } from '../services/docker.js';
 import { CloudflareService } from '../services/cloudflare.js';
 import { DmsService } from '../services/dms.js';
 import { DomainManager } from '../services/domain-manager.js';
-import { OpsService, QuotaRow } from '../services/ops.js';
+import { ContainerStats, OpsService, QuotaRow, parseContainerStats } from '../services/ops.js';
 import { DomainInfo } from '../types.js';
 import { Health, ui } from './ui.js';
+
+const execFileP = promisify(execFile);
 
 let refreshSeq = 0;
 
@@ -53,6 +57,7 @@ export async function refreshDashboard(dm: DomainManager): Promise<void> {
   const seq = ++refreshSeq;
   ui.setRefreshing(true);
   await refreshLocal(dm);
+  void refreshLive(); // container state is known now; don't make the Overview wait for DNS and Cloudflare
 
   const containerStatus = new DockerService().getContainerStatus();
   const cf = new CloudflareService();
@@ -109,4 +114,74 @@ async function loadHealth(mailserverUp: boolean): Promise<Health> {
   ]);
   // WEBMAIL_HOSTNAME and POSTMARK_SERVER_TOKEN are special per-project env vars not in AppConfig.
   return { bridge, tunnel, webmail, relay: Boolean(process.env.POSTMARK_SERVER_TOKEN), certDays: cert?.daysLeft };
+}
+
+// ── Live feed for the Overview ───────────────────────────────────────────────
+
+const LIVE_INTERVAL_MS = 5000;
+/** `docker stats` takes about a second, so it runs on every third poll. */
+const STATS_EVERY = 3;
+let liveBusy = false;
+let liveTick = 0;
+
+/** State of the host's fail2ban-watcher service ("active", "inactive", …) or "n/a" without systemd. */
+async function watcherState(): Promise<string> {
+  try {
+    const { stdout } = await execFileP('systemctl', ['is-active', 'fail2ban-watcher'], { timeout: 3000 });
+    return stdout.trim() || 'n/a';
+  } catch (err: any) {
+    return String(err?.stdout ?? '').trim() || 'n/a';
+  }
+}
+
+async function containerStartedAt(): Promise<Date | undefined> {
+  const res = await new DockerService().runAsync(['inspect', '-f', '{{.State.StartedAt}}', 'mailserver']);
+  const d = new Date(res.stdout.trim());
+  return res.success && !Number.isNaN(d.getTime()) ? d : undefined;
+}
+
+async function containerStats(): Promise<ContainerStats | undefined> {
+  const res = await new DockerService().runAsync([
+    'stats', '--no-stream', '--format', '{{.CPUPerc}}|{{.MemUsage}}|{{.MemPerc}}', 'mailserver',
+  ]);
+  return res.success ? parseContainerStats(res.stdout) : undefined;
+}
+
+/**
+ * One poll of the Overview data. Overlapping ticks are skipped rather than queued, and a
+ * failed poll keeps the last good data on screen with the error beside it.
+ */
+export async function refreshLive(): Promise<void> {
+  if (liveBusy) return;
+  const { dashboard } = ui.getState();
+  if (dashboard.containerStatus !== 'running') {
+    if (dashboard.live) ui.patchDashboard({ live: undefined });
+    return;
+  }
+  liveBusy = true;
+  try {
+    const previous = dashboard.live;
+    const withStats = liveTick++ % STATS_EVERY === 0 || !previous?.container;
+    const [live, watcher, startedAt, container] = await Promise.all([
+      new OpsService().live(),
+      watcherState(),
+      containerStartedAt(),
+      withStats ? containerStats() : Promise.resolve(previous?.container),
+    ]);
+    ui.patchDashboard({ live: { ...live, watcher, startedAt, container: container ?? previous?.container } });
+  } catch (err: any) {
+    const previous = ui.getState().dashboard.live;
+    if (previous) ui.patchDashboard({ live: { ...previous, error: String(err?.message ?? err) } });
+  } finally {
+    liveBusy = false;
+  }
+}
+
+/** Polls every few seconds (paused while a prompt is open); returns a function that stops it. */
+export function startLive(): () => void {
+  void refreshLive();
+  const timer = setInterval(() => {
+    if (!ui.getState().prompt) void refreshLive();
+  }, LIVE_INTERVAL_MS);
+  return () => clearInterval(timer);
 }

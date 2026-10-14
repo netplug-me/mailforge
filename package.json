@@ -13,9 +13,10 @@
     "typecheck": "tsc --noEmit",
     "test:unit": "node test/txt-upsert.test.mjs",
     "test:tui": "node test/tui-layout.test.mjs",
-    "test": "npm run build && npm run test:unit && npm run test:ops && npm run test:f2b && npm run test:flows && npm run test:tui",
+    "test": "npm run build && npm run test:unit && npm run test:ops && npm run test:f2b && npm run test:overview && npm run test:flows && npm run test:tui",
     "test:ops": "node test/ops-parsers.test.mjs",
     "test:f2b": "node test/fail2ban-watcher.test.mjs",
+    "test:overview": "node test/overview-model.test.mjs",
     "test:flows": "node test/flows.test.mjs"
   },
   "keywords": [

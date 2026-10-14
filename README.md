@@ -24,10 +24,11 @@ v0.0.1.pre-release - under development - more stack plugs coming!
 ## ✨ Features
 
 ### 🖥️ Interactive TUI (`mailforge`)
-Built on [Ink](https://github.com/vadimdemedes/ink) — three powerful screens at your fingertips:
+Built on [Ink](https://github.com/vadimdemedes/ink) — four screens at your fingertips (`1`–`4` or `tab`):
 
 | Screen | What it does |
 |---|---|
+| **📡 Overview** | The landing page, refreshed every 5 s (one `docker exec` into the mail server, plus a few cheap host-side checks): a **Pulse** strip (received, sent, bounced/rejected, queue, logins, scanner probes, bans, who's online, cert days) with mail and threat sparklines; **Recent mail** (in and out, newest first); **Bans** (current fail2ban bans merged across jails, recent ban/unban/strike activity, proxy-sync service state); **System** (uptime, load, container CPU/memory, queue, IMAP sessions, storage); and a **Live log** of the mail server. Cloudflared's health-check chatter (~98% of the raw log) is filtered out and repeats collapse to `×N`; `f` cycles `signal` / `problems` / `raw`, `↑↓` `pgup/pgdn` scroll, `G` follows. Counters cover as much history as `mail.log` holds (shown in the Pulse title). |
 | **📬 Mailboxes** | Every mailbox & alias grouped by domain, live quota bars, add/remove/change passwords, forwarders, filter by domain. Side panel shows mail-app settings + webmail URL. |
 | **🌐 Domains** | Health matrix (mailboxes, DKIM, live MX/SPF/DKIM/DMARC), found-vs-expected DNS detail, Cloudflare zone list. Add/remove domain, publish DNS, regenerate DKIM. |
 | **🔧 Tools** | Mail queue (retry/purge deferred), delivery log, quota bars, IMAP clients, fail2ban bans + unban, TLS cert countdown, inbound/outbound check, Postmark stats, send-test-email, container start/stop/logs. |
@@ -218,10 +219,12 @@ src/
     ├── app.tsx            # Starts Ink (alternate screen) and the first refresh
     ├── view.tsx           # App shell: status bar, tabs, footer, dialog/dock routing, key lock
     ├── screens.tsx        # Mailboxes, Domains and Tools screens
+    ├── overview.tsx       # Overview screen: pulse, recent mail, bans, system, live log
+    ├── overview-model.ts  # Its pure helpers (sparklines, log filters, collapsing, tiles), unit-tested
     ├── widgets.tsx        # Panel, status bar, form / confirm / notice dialogs, select dock
     ├── flows.ts           # One function per user task (add mailbox, remove domain, …)
     ├── actions.ts         # The Tools screen's tools (queue, logs, fail2ban, container, …)
-    ├── dashboard.ts       # Refresh: fast local state first, then live DNS, zones, usage
+    ├── dashboard.ts       # Refresh: fast local state first, then live DNS, zones, usage; the 5 s Overview poll
     ├── ui.ts              # State store and prompt bridge (select, text, confirm, form, notice, toast)
     └── theme.ts           # Palette, truncate/fit helpers, password generator
 ```
