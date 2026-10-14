@@ -4,8 +4,7 @@
   "description": "Full-stack mail server orchestrator: Docker Mailserver, Cloudflare DNS, AWS proxy, inbound routing, outbound relay — with an interactive TUI",
   "type": "module",
   "bin": {
-    "mailforge": "./dist/index.js",
-    "mailctl": "./dist/index.js"
+    "mailforge": "./dist/index.js"
   },
   "scripts": {
     "dev": "tsx src/index.ts",

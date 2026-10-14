@@ -32,10 +32,45 @@ as they are for webmail and local clients, and are closed to the proxy box by th
   ignored by fail2ban). With PROXY protocol the mailserver logs now show the real client IP (`rip=`, `client[...]`),
   but a fail2ban ban is a firewall rule on the mailserver, and the connection's TCP peer is still cloudflared, so a
   ban never blocks the attacker. What does work per real IP: HAProxy's connection-rate limit, Postfix
-  `smtpd_client_auth_rate_limit=20`/min on the proxy ports, and Dovecot's auth delay. Real bans need the ban
-  applied on the proxy box (a host-side watcher on nerdland that reads fail2ban's log and adds the IP to an
-  HAProxy deny list over SSH); that is not built yet. Use strong mailbox passwords.
+  `smtpd_client_auth_rate_limit=20`/min on the proxy ports, and Dovecot's auth delay.
+- **Ban sync via `fail2ban-watcher.sh`**: a script on nerdland tails the mounted mail log, detects fail2ban
+  `Ban` events (which show the real client IP thanks to PROXY protocol), and pushes each ban to the proxy box's
+  HAProxy stick-table over SSH + socat. Entries expire after 10 minutes (matching the stick-table config).
+  See "Setup" below. Use strong mailbox passwords as a secondary defense.
 - The proxy box's VPC must not overlap `172.25.0.0/16` (the default VPC `172.31.0.0/16` is fine).
+
+### fail2ban-watcher setup
+
+1. **Ensure the admin socket** is configured in `haproxy.cfg` (already added — `stats socket /run/haproxy/admin.sock`).
+   The proxy box also needs `socat` installed (added to `user-data.sh`).
+
+2. **Set up SSH key** from nerdland to the proxy box:
+   ```bash
+   ssh-copy-id -i ~/.ssh/id_rsa.pub ubuntu@<EIP>
+   ```
+
+3. **Run the watcher** from nerdland (where compose.yaml lives):
+   ```bash
+   PROXY_SSH_HOST=<EIP> ./aws-proxy/fail2ban-watcher.sh
+   ```
+   Or with `--dry-run` to preview without pushing bans.
+
+4. **Optional: systemd service** on nerdland (`/etc/systemd/system/fail2ban-watcher.service`):
+   ```ini
+   [Unit]
+   Description=Fail2ban → HAProxy ban sync
+   After=docker.service
+
+   [Service]
+   Type=simple
+   ExecStart=/home/lham/dev/cli/cf-mail-tui/aws-proxy/fail2ban-watcher.sh
+   Restart=always
+   RestartSec=10
+
+   [Install]
+   WantedBy=multi-user.target
+   ```
+   Then `systemctl enable --now fail2ban-watcher`.
 
 ## Steps
 
