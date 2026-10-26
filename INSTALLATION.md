@@ -34,6 +34,27 @@ Pick two names now and write them down. This guide uses these examples; replace 
 | `mail.example.com` | Your mail server's hostname (`MX_HOST`) |
 | `webmail.example.com` | Where the web inbox will live (optional) |
 
+### Step 0b: Get your domain onto Cloudflare
+
+This guide only works when Cloudflare runs your domain's DNS. Pick the option that matches your situation.
+
+**Option A (simplest): buy the domain from Cloudflare.** If you don't have a domain yet, register one at Cloudflare. Its DNS is on Cloudflare from the
+first minute, so there is nothing to move and nothing to wait for.
+
+1. Cloudflare dashboard → **Domain Registration → Register Domains**.
+2. Search for a name, buy it, and finish checkout.
+
+**Option B: you already own a domain elsewhere.** Keep the domain where it is and just move its DNS to Cloudflare. It's quick, and your registrar stays the same.
+
+1. Cloudflare dashboard → **Add a domain** → enter `example.com` → choose the **Free** plan.
+2. Cloudflare scans and copies your existing DNS records. Compare them with what you have now and fix anything missing, especially records for a
+   website or email you already use.
+3. Cloudflare shows you two **nameservers** (like `ada.ns.cloudflare.com`). Log in to your registrar, find the domain's **nameservers** setting and replace
+   the current ones with those two.
+4. Wait. This is usually minutes, sometimes a few hours. Cloudflare emails you when it's done.
+
+**Check:** the domain shows **Active** in the Cloudflare dashboard. Don't continue until it does, because the API token in Step 2 is created for this domain.
+
 ---
 
 ## Step 1: Get the code and build it
