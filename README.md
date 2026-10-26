@@ -68,6 +68,8 @@ Three related components handle mail delivery beyond the mailserver itself:
 
 ## 🚀 Quick Start
 
+> New to this? Follow the step-by-step [**Installation guide**](INSTALLATION.md).
+
 ### 1. Install & Build
 
 ```bash
