@@ -5,7 +5,7 @@
 #     -f webmail/compose.webmail.yaml up -d --no-deps webmail
 #
 # Nothing here is published on the host. Reach it through the Cloudflare Tunnel with an ingress
-# rule  <WEBMAIL_HOSTNAME> -> http://webmail:80  and put a Cloudflare Access policy in front
+# rule  <WEBMAIL_HOSTNAME> -> http://webmail:9000  and put a Cloudflare Access policy in front
 # of that hostname BEFORE publishing it (Roundcube's own login page must not face the internet).
 #
 # Roundcube logs in over IMAPS (993) and sends over authenticated submission (587), never
@@ -16,7 +16,7 @@
 
 services:
   webmail:
-    image: roundcube/roundcubemail:1.6.19-apache
+    image: roundcube/roundcubemail:1.7.5-apache
     restart: unless-stopped
     extra_hosts:
       - "${MX_HOST:?set MX_HOST in .env}:host-gateway"
@@ -32,5 +32,7 @@ services:
       - ./docker-data/webmail/db:/var/roundcube/db
       - ./webmail/custom.inc.php:/var/roundcube/config/custom.inc.php:ro
       - ./webmail/https-behind-proxy.conf:/etc/apache2/conf-enabled/https-behind-proxy.conf:ro
+      - ./webmail/ports.conf:/etc/apache2/ports.conf:ro
+      - ./webmail/000-default.conf:/etc/apache2/sites-available/000-default.conf:ro
     depends_on:
       - mailserver
